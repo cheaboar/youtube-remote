@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>遥控器设置 · YouTube 键盘选片</title><link rel="stylesheet" href="options.css"></head>
+<body><main>
+  <header><p class="product">YouTube 键盘选片</p><h1>让每个按键都有用。</h1><p>为蓝牙遥控器设置选片、语音搜索和播放操作。语音识别由遥控器完成。</p></header>
+  <section aria-labelledby="behavior-title"><h2 id="behavior-title">操作设置</h2>
+    <div class="preferences"><label><input id="enabled" type="checkbox">启用遥控器接管</label><label><input id="show-status" type="checkbox">显示当前操作区域</label>
+    <label>双击间隔 <input id="interval" type="number" min="200" max="1000" step="50"> 毫秒</label></div>
+    <p class="hint">返回键逐层退出：搜索 → 原区域，侧栏 → 播放器，全屏 → 普通播放，然后才返回上一页。</p>
+  </section>
+  <section aria-labelledby="mapping-title"><div class="section-heading"><h2 id="mapping-title">按键映射</h2><span>点击按键后，按一次遥控器上的键</span></div>
+    <div id="bindings" class="bindings"></div>
+    <h3>播放器中的双击操作</h3><p class="hint">只在播放器区域识别双击，列表中连续方向键始终用于移动。第一次按键立即执行，可能改变一次音量。</p>
+    <div id="doubles" class="bindings"></div>
+    <div class="toolbar"><button id="save" class="primary">保存设置</button><button id="reset">恢复默认</button><button id="cancel-recording" hidden>取消录制</button></div>
+    <p id="feedback" role="status" aria-live="polite"></p>
+  </section>
+  <section aria-labelledby="diagnostic-title"><div class="section-heading"><h2 id="diagnostic-title">遥控器诊断</h2><button id="diagnostics">开始诊断 5 分钟</button></div>
+    <p class="hint">启用后切换到 YouTube，按遥控器，再回这里查看网页收到的按键。若没有记录，请在遥控器端换一个映射。文字输入只显示输入状态，不记录语音文字。</p>
+    <div class="table-wrap"><table><thead><tr><th>时间 / 标签页</th><th>操作区域</th><th>按键 / code</th><th>状态 / 操作</th></tr></thead><tbody id="events"></tbody></table></div>
+    <p id="diagnostic-state" class="hint">诊断未开启。</p>
+  </section>
+</main><script src="remote.js"></script><script src="options.js"></script></body></html>

@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube 键盘选片",
+  "version": "2.0.0",
+  "description": "使用方向键选择 YouTube 节目并按 Enter 播放。",
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "YouTube 键盘选片：快捷键说明",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["navigation.js", "remote.js", "youtube.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    }
+  ]
+}

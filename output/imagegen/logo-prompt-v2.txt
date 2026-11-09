@@ -1,0 +1,9 @@
+Design a single finished app icon for a browser extension that lets people select YouTube videos with a Bluetooth directional remote.
+
+Subject: one original, extremely simple geometric emblem combining a right-facing play triangle with a remote-control directional selection frame. A red rounded square tile, a large clean white play triangle centered inside it, and exactly two thick cyan focus brackets at the top-left and bottom-right corners. The brackets evoke the glowing selection border used by the extension. Treat this as a compact coherent symbol, not a collection of small icons.
+
+Composition: straight-on, centered, square icon occupying about 80 percent of the image height; all meaningful shapes must fit within the central square even if the returned image is wider than square. The red tile should have moderately rounded corners; the white triangle should remain clear and bold at 16 pixels. Cyan brackets should be thick and simple. Use generous spacing between the triangle and tile edges. Surround the tile with a solid very light neutral background (#f8fafb) for deliberate later square cropping. Keep the entire icon in frame.
+
+Style and colors: crisp flat vector-like brand geometry rendered as a PNG, sharp edges, saturated warm red (#ed3347), white (#ffffff), cyan (#38bcf3), and a uniform light neutral background. No shadows, no glow gradients, no 3D, no photographic materials. High contrast, immediately readable in a browser toolbar.
+
+Constraints: produce exactly one icon, no alternate versions, no presentation board, no mockup, no text, no letters, no wordmark, no watermark, no device illustration, no tiny buttons, no extra ornaments. Create an independent extension identity, not an exact copy of YouTube's official logo. The only visual elements are the rounded red tile, white play triangle and two cyan focus brackets.

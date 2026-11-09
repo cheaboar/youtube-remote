@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;font:16px system-ui;background:#fafafa}header{position:sticky;top:0;height:60px;background:white;z-index:3;padding:8px;box-sizing:border-box}input{width:360px;padding:7px}#grid{display:grid;grid-template-columns:repeat(3,240px);gap:24px;padding:30px}ytd-rich-item-renderer{display:block;height:180px;border:1px solid #ccc}a{display:block;padding:15px;color:#234}#movie_player{width:600px;height:340px;background:#222;position:relative}video{width:100%;height:300px}#movie_player:fullscreen{width:100%;height:100%}#movie_player:fullscreen video{height:90%}ytd-watch-flexy{display:block;padding:20px}#watch-layout{display:flex;gap:30px}#related{width:320px}ytd-playlist-panel-renderer{display:block;max-height:330px;overflow:auto}ytd-playlist-panel-video-renderer,yt-lockup-view-model{display:block;height:100px;border:1px solid #bbb;margin:8px 0}#continuation{height:60px;margin-top:100px}#full{display:none}
+</style></head><body><header><form id="search-form" action="/results"><input name="search_query" type="text"><button>搜索</button></form></header><main id="app"></main><script>
+window.nativeEvents=[];
+window.addEventListener('keydown',e=>{if(!e.defaultPrevented)window.nativeEvents.push(e.key)},true);
+const app=document.querySelector('#app');
+let observer;
+function card(tag,id,extra=''){return `<${tag} data-video="${id}" ${extra}><a href="/watch?v=${id}">${id} 节目</a></${tag}>`}
+function audio(video){const rate=8000,n=rate*30,b=new ArrayBuffer(44+n*2),v=new DataView(b);const text=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};text(0,'RIFF');v.setUint32(4,b.byteLength-8,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,n*2,true);video.src=URL.createObjectURL(new Blob([b],{type:'audio/wav'}));video.load()}
+window.render=()=>{
+ observer?.disconnect(); const p=new URLSearchParams(location.search); app.replaceChildren();
+ if(location.pathname==='/watch'){
+ app.innerHTML='<ytd-watch-flexy><div id="watch-layout"><div id="movie_player" tabindex="0"><video preload="auto"></video><button id="play-control">播放</button></div><div id="related"></div></div></ytd-watch-flexy>';
+ audio(document.querySelector('video'));
+ const side=()=>{if(!document.querySelector('#related'))return;document.querySelector('#related').innerHTML=(p.has('list')?'<ytd-playlist-panel-renderer>'+Array.from({length:6},(_,i)=>card('ytd-playlist-panel-video-renderer','p'+i,i===0?'selected':'')).join('')+'</ytd-playlist-panel-renderer>':'')+Array.from({length:6},(_,i)=>card('yt-lockup-view-model','r'+i)).join('')};
+ setTimeout(side,p.has('delay')?650:0);
+ }else{
+ let count=p.has('empty')?0:6;app.innerHTML='<div id="grid">'+Array.from({length:count},(_,i)=>card('ytd-rich-item-renderer','v'+i)).join('')+'</div><div id="continuation"></div>';
+ observer=new IntersectionObserver(entries=>{if(entries[0].isIntersecting&&count>0&&count<18){const start=count;count+=6;setTimeout(()=>{document.querySelector('#grid')?.insertAdjacentHTML('beforeend',Array.from({length:6},(_,i)=>card('ytd-rich-item-renderer','v'+(start+i))).join(''))},120)}});
+ observer.observe(document.querySelector('#continuation'));
+ }
+ document.dispatchEvent(new Event('yt-navigate-finish'));
+};
+window.navigate=url=>{document.dispatchEvent(new Event('yt-navigate-start'));history.pushState({},'',url);render()};
+document.addEventListener('click',e=>{const a=e.target.closest('a');if(a){e.preventDefault();navigate(a.href)}});
+document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();navigate('/results?search_query='+encodeURIComponent(document.querySelector('input').value))});
+addEventListener('popstate',()=>{render();document.querySelector('#grid a')?.focus()});
+render();
+</script></body></html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube 键盘选片</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header class="heading">
+      <div>
+        <p class="product">YouTube 键盘选片</p>
+        <h1>快捷键说明</h1>
+      </div>
+      <button id="home" class="home" title="在当前标签页打开 YouTube 首页">首页</button>
+    </header>
+
+    <label class="enable"><input id="enabled" type="checkbox">启用遥控器接管</label>
+    <dl id="shortcuts" class="shortcuts"></dl>
+    <p class="note">方向键选片。返回键逐层退出，返回列表后恢复选中节目。</p>
+    <p id="double-help" class="help"></p>
+    <button id="settings">配置遥控器与按键诊断</button>
+  </main>
+<script src="remote.js"></script><script src="popup.js"></script></body>
+</html>

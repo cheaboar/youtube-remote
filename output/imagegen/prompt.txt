@@ -1,0 +1,6 @@
+Use case: logo-brand
+Asset type: browser extension icon for a keyboard-driven YouTube video selector
+Primary request: Design one distinctive, simple app icon combining a play symbol with keyboard directional navigation and a selection focus outline.
+Composition: A centered, bold mark with generous clear space, filling a square app-icon canvas. Make the silhouette immediately legible at 16 x 16 pixels.
+Style: Crisp flat vector-like geometry, polished and restrained. Red, white and a small cyan accent; dark or neutral backing if needed for contrast.
+Constraints: One icon only, front-facing, no mockup, no text, no letters, no watermarks, no tiny details, and no decorative background.
