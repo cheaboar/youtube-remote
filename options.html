@@ -12,7 +12,10 @@
     <div id="bindings" class="bindings"></div>
     <h3>播放器中的双击操作</h3><p class="hint">只在播放器区域识别双击，列表中连续方向键始终用于移动。第一次按键立即执行，可能改变一次音量。</p>
     <div id="doubles" class="bindings"></div>
-    <div class="toolbar"><button id="save" class="primary">保存设置</button><button id="reset">恢复默认</button><button id="cancel-recording" hidden>取消录制</button></div>
+    <h3>复合键模式</h3><p id="sequence-entry" class="hint"></p>
+    <p class="hint">单击确认会等待双击间隔后执行。面板打开后，↑↓ 选择指令，Return / Enter 或确认键立即执行；← / → 开始输入组合，之后方向键继续组合，匹配完成立即执行。Esc 或返回键退出，Backspace 撤销。新组合以 ← 或 → 开头，共 2–4 步；清空只禁用组合，仍可从菜单选择，不允许重复或互为前缀。已有自定义组合保留。</p>
+    <div id="sequences" class="bindings"></div>
+    <div class="toolbar"><button id="save" class="primary">保存设置</button><button id="reset">恢复默认</button><button id="finish-sequence" hidden>完成序列</button><button id="undo-sequence" hidden>撤销一步</button><button id="cancel-recording" hidden>取消录制</button></div>
     <p id="feedback" role="status" aria-live="polite"></p>
   </section>
   <section aria-labelledby="diagnostic-title"><div class="section-heading"><h2 id="diagnostic-title">遥控器诊断</h2><button id="diagnostics">开始诊断 5 分钟</button></div>

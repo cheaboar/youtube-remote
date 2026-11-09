@@ -80,6 +80,21 @@
   }
   function video() { return [...document.querySelectorAll("#movie_player video,video.html5-main-video,video")].find(visible); }
   function player() { return [...document.querySelectorAll("#movie_player")].find(visible) || video(); }
+  function playerControl(action) {
+    const selectors = { captions: ".ytp-subtitles-button", theater: ".ytp-size-button", playerSettings: ".ytp-settings-button" };
+    const root = player();
+    if (!root || !selectors[action]) return null;
+    // Auto-hidden player chrome still accepts clicks. Ignore opacity, but exclude unavailable controls.
+    return [...root.querySelectorAll(selectors[action])].find(button => {
+      const box = button.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && !button.disabled && button.getAttribute("aria-disabled") !== "true" &&
+        getComputedStyle(button).visibility !== "hidden";
+    }) || null;
+  }
+  function playerMenuItem() {
+    const menu = [...(player()?.querySelectorAll(".ytp-settings-menu,[role='menu']") || [])].find(visible);
+    return menu && [...menu.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']")].find(visible);
+  }
   function overlay() {
     return [...document.querySelectorAll("dialog[open],[role='dialog'],[aria-modal='true'],tp-yt-paper-dialog,tp-yt-iron-dropdown,[role='menu']")]
       .find(element => !element.matches("yt-player-interstitial-renderer") && visible(element));
@@ -104,5 +119,5 @@
     return false;
   }
   globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, sidebar, expandPlaylist,
-    searchInput, editing, video, player, overlay, scrollParent, scrollForMore, submitSearch };
+    searchInput, editing, video, player, playerControl, playerMenuItem, overlay, scrollParent, scrollForMore, submitSearch };
 })();

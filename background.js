@@ -2,7 +2,13 @@
 // Serialize updates so rapid selection changes cannot overwrite another route.
 let queue = Promise.resolve();
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (!sender.tab || !/^https:\/\/www\.youtube\.com\//.test(sender.url || "")) return;
+  if (!sender.tab || sender.frameId !== 0 || !/^https:\/\/www\.youtube\.com\//.test(sender.url || "")) return;
+  if (message.type === "remote:tab-command") {
+    if (!["closeTab", "reload"].includes(message.command)) { respond({ ok: false }); return; }
+    const operation = message.command === "closeTab" ? chrome.tabs.remove(sender.tab.id) : chrome.tabs.reload(sender.tab.id);
+    operation.then(() => respond({ ok: true }), () => respond({ ok: false }));
+    return true;
+  }
   const key = `remote:tab:${sender.tab.id}`;
   queue = queue.catch(() => {}).then(async () => {
     const stored = (await chrome.storage.session.get(key))[key] || { routes: {}, events: [] };

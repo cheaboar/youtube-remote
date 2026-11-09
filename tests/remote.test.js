@@ -8,6 +8,28 @@ test("default mappings are valid and normalize physical modifier chords", () => 
   assert.equal(R.chord(event("Enter", 0, { code: "NumpadEnter" })), "Enter");
   assert.equal(R.chord(event("s", 0, { code: "" })), "KeyS");
 });
+test("Return and keypad variants normalize to Enter, including missing or unidentified codes", () => {
+  for (const fields of [
+    { key: "Return", code: "Return" }, { key: "Return", code: "" },
+    { key: "Return", code: "Unidentified" }, { key: "Enter", code: "Unidentified" },
+    { key: "Unidentified", code: "Enter" }, { key: "Enter", code: "NumpadEnter" },
+    { key: "Unidentified", code: "", keyCode: 13 }
+  ]) assert.equal(R.chord(fields), "Enter", JSON.stringify(fields));
+  assert.equal(R.chord({ key: "Return", code: "Return", altKey: true }), "Alt+Enter");
+  assert.equal(R.chord({ key: "Process", code: "Enter", keyCode: 229 }), "");
+});
+test("stored Return bindings and sequence steps migrate without resetting custom mappings", () => {
+  const settings = R.cloneDefaults();
+  settings.bindings.confirm = "Return";
+  settings.bindings.search = "F8";
+  settings.sequences.home = ["Return", "ArrowUp"];
+  const normalized = R.normalize(settings);
+  assert.equal(normalized.bindings.confirm, "Enter");
+  assert.equal(normalized.bindings.search, "F8");
+  assert.deepEqual(normalized.sequences.home, ["Enter", "ArrowUp"]);
+  assert.equal(settings.bindings.confirm, "Return");
+  assert.equal(settings.sequences.home[0], "Return");
+});
 test("conflicting mappings and destructive single/double overlaps are rejected", () => {
   const settings = R.cloneDefaults();
   settings.bindings.search = "Enter";
@@ -51,4 +73,89 @@ test("other keys and reset break a double tap sequence", () => {
   assert.equal(matcher.match(event("ArrowUp", 100), settings, "player"), "up");
   matcher.reset();
   assert.equal(matcher.match(event("ArrowUp", 150), settings, "player"), "up");
+});
+
+test("sequence candidates filter by ordered prefix and only complete at an exact match", () => {
+  const { sequences } = R.cloneDefaults();
+  assert.equal(R.sequenceCandidates(sequences, []).candidates.length, 12);
+  assert.ok(Object.values(sequences).every(keys => ["ArrowLeft", "ArrowRight"].includes(keys[0])));
+  const partial = R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowDown"]);
+  assert.deepEqual(partial.candidates.map(item => item.action), ["mute", "captions", "theater", "playerSettings"]);
+  assert.equal(partial.action, null);
+  assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowRight", "ArrowRight"]).action, "closeTab");
+  assert.equal(R.sequenceCandidates(sequences, ["ArrowRight", "ArrowDown"]).action, "sidebar");
+  assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowDown", "ArrowUp"]).action, "theater");
+  assert.equal(R.sequenceCandidates(sequences, ["KeyZ"]).candidates.length, 0);
+});
+
+test("sequence validation rejects ambiguous prefixes, reserved keys and invalid lengths", () => {
+  const settings = R.cloneDefaults();
+  settings.sequences.home = [...settings.sequences.closeTab];
+  assert.match(R.validate(settings), /重复或前缀/);
+  settings.sequences.home.push("Enter");
+  assert.match(R.validate(settings), /重复或前缀/);
+  settings.sequences.home = ["Escape", "ArrowUp"];
+  assert.match(R.validate(settings), /返回键/);
+  settings.bindings.back = "F9";
+  settings.sequences.home = ["F9", "ArrowUp"];
+  assert.match(R.validate(settings), /返回键/);
+  settings.sequences.home = ["Ctrl+KeyW", "ArrowUp"];
+  assert.match(R.validate(settings), /系统保留/);
+  settings.sequences.home = ["F7"];
+  assert.match(R.validate(settings), /2–4/);
+  settings.sequences.home = ["F7", "Enter", "ArrowUp", "ArrowRight"];
+  assert.equal(R.validate(settings), "");
+  for (const action of Object.keys(settings.sequences)) settings.sequences[action] = [];
+  assert.match(R.validate(settings), /至少保留/);
+});
+
+test("old settings gain sequences without resetting remote bindings, including an arrow Back key", () => {
+  const legacy = R.cloneDefaults();
+  delete legacy.sequences;
+  legacy.bindings.confirm = "F8";
+  legacy.bindings.back = "ArrowDown";
+  legacy.bindings.down = "F9";
+  legacy.doubles.sidebar = "";
+  legacy.enabled = false;
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.enabled, false);
+  assert.equal(migrated.bindings.confirm, "F8");
+  assert.equal(migrated.bindings.back, "ArrowDown");
+  assert.deepEqual(migrated.sequences.theater, []);
+  assert.equal(R.validate(migrated), "");
+  assert.equal(legacy.sequences, undefined);
+});
+
+test("old sequence presets upgrade to horizontal starts without resetting remote settings or disabled commands", () => {
+  const legacy = R.cloneDefaults();
+  legacy.enabled = false; legacy.doubleInterval = 650; legacy.bindings.confirm = "F8";
+  legacy.sequences = {
+    closeTab: ["ArrowDown", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight"],
+    home: ["ArrowUp", "ArrowUp"], search: [], historyBack: ["ArrowDown", "ArrowLeft"],
+    togglePlayback: ["ArrowRight", "ArrowRight"], fullscreen: ["ArrowRight", "ArrowUp"], sidebar: ["ArrowRight", "ArrowDown"]
+  };
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.enabled, false);
+  assert.equal(migrated.doubleInterval, 650);
+  assert.equal(migrated.bindings.confirm, "F8");
+  assert.deepEqual(migrated.sequences.search, []);
+  assert.deepEqual(migrated.sequences.closeTab, ["ArrowLeft", "ArrowRight", "ArrowRight"]);
+  assert.deepEqual(migrated.sequences.mute, ["ArrowLeft", "ArrowDown", "ArrowLeft"]);
+  assert.equal(R.validate(migrated), "");
+  assert.deepEqual(R.normalize(migrated), migrated);
+  assert.equal(legacy.sequences.mute, undefined);
+});
+
+test("adding player commands preserves custom sequences and disables conflicting new defaults", () => {
+  const custom = R.cloneDefaults();
+  for (const action of ["mute", "captions", "theater", "playerSettings"]) delete custom.sequences[action];
+  custom.bindings.confirm = "F8";
+  custom.sequences.closeTab = ["ArrowLeft", "ArrowDown"];
+  custom.sequences.fullscreen = [];
+  const migrated = R.normalize(custom);
+  assert.equal(migrated.bindings.confirm, "F8");
+  assert.deepEqual(migrated.sequences.closeTab, custom.sequences.closeTab);
+  assert.deepEqual(migrated.sequences.fullscreen, []);
+  for (const action of ["mute", "captions", "theater", "playerSettings"]) assert.deepEqual(migrated.sequences[action], []);
+  assert.equal(R.validate(migrated), "");
 });

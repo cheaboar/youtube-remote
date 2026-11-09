@@ -1,8 +1,8 @@
 .youtube-keyboard-selected {
-  outline: 3px solid #3ea6ff !important;
-  outline-offset: 3px !important;
-  border-radius: 8px !important;
-  box-shadow: 0 0 0 5px rgba(62, 166, 255, 0.24), 0 0 20px 6px rgba(62, 166, 255, 0.65) !important;
+  outline: 2px solid rgba(10, 132, 255, 0.88) !important;
+  outline-offset: 4px !important;
+  border-radius: 14px !important;
+  box-shadow: 0 0 0 5px rgba(10, 132, 255, 0.1), 0 0 22px 3px rgba(10, 132, 255, 0.28) !important;
   position: relative !important;
   z-index: 2 !important;
 }

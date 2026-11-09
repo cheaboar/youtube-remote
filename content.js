@@ -27,8 +27,12 @@
   let navigationBusy = false;
   let lastActivation = { action: "", time: -Infinity };
   let ui;
+  let sequenceUi;
+  let sequenceMode = null;
+  let confirmation = null;
   let tabFocus = false;
   const synthetic = new WeakSet();
+  const consumedKeys = new Set();
   const localSnapshots = new Map();
 
   function send(message) {
@@ -36,6 +40,10 @@
     catch (_) { return Promise.resolve(null); }
   }
   function items() { return D.candidates(region === "sidebar" ? area : "list"); }
+  function sequenceChoices() {
+    return sequenceMode?.prefix.length ? R.sequenceCandidates(settings.sequences, sequenceMode.prefix).candidates :
+      Object.keys(R.SEQUENCE_ACTIONS).map(action => ({ action, keys: settings.sequences[action] || [] }));
+  }
   function clearHighlight() {
     selected?.element.classList.remove(highlight);
     document.querySelectorAll(`.${highlight}`).forEach((element) => element.classList.remove(highlight));
@@ -48,7 +56,18 @@
       host.id = "youtube-remote-status";
       const shadow = host.attachShadow({ mode: "open" });
       const style = document.createElement("style");
-      style.textContent = ":host{position:fixed;bottom:20px;right:20px;z-index:2147483647;pointer-events:none}div{max-width:min(440px,calc(100vw - 40px));padding:9px 13px;border:1px solid #466476;border-radius:7px;background:#183343;color:#fff;box-shadow:0 3px 14px #0003;font:500 13px/1.5 system-ui,sans-serif}span{color:#b9dcea;margin-left:8px}";
+      style.textContent = `
+        :host{position:fixed;bottom:20px;right:20px;z-index:2147483647;pointer-events:none;color-scheme:light}
+        div{max-width:min(460px,calc(100vw - 40px));padding:11px 17px;border:1px solid rgba(255,255,255,.76);border-radius:18px;
+          background:linear-gradient(145deg,rgba(255,255,255,.28),rgba(255,255,255,.06)),rgba(246,247,249,.82);
+          -webkit-backdrop-filter:blur(24px) saturate(145%);backdrop-filter:blur(24px) saturate(145%);
+          color:#34363b;box-shadow:0 6px 24px rgba(32,36,44,.09),inset 0 1px 0 rgba(255,255,255,.94),inset 0 -1px 0 rgba(32,36,44,.035);
+          font:400 13px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC",sans-serif;-webkit-font-smoothing:antialiased}
+        strong{font-weight:600}span{color:#575b63;margin-left:10px}
+        @supports not (backdrop-filter:blur(1px)){div{background:rgba(247,248,250,.97)}}
+        @media(prefers-reduced-transparency:reduce){div{background:#f6f7f9;-webkit-backdrop-filter:none;backdrop-filter:none}}
+        @media(prefers-contrast:more){div{background:#f6f7f9;border-color:#858991;color:#26282d}span{color:#42464d}}
+      `;
       const box = document.createElement("div");
       box.setAttribute("role", "status");
       const title = document.createElement("strong");
@@ -65,7 +84,258 @@
     if (ui.title.textContent !== title) ui.title.textContent = title;
     if (ui.detail.textContent !== detail) ui.detail.textContent = detail;
     ui.host.dataset.region = region;
-    ui.host.hidden = !settings.enabled || (!settings.showStatus && !transient);
+    ui.host.dataset.confirm = settings.bindings.confirm;
+    const hidden = !settings.enabled || !!sequenceMode || (!settings.showStatus && !transient);
+    if (ui.host.hidden !== hidden) ui.host.hidden = hidden;
+    renderSequences();
+  }
+  function renderSequences() {
+    if (!sequenceMode || !settings.enabled) {
+      if (sequenceUi && !sequenceUi.host.hidden) sequenceUi.host.hidden = true;
+      return;
+    }
+    if (!sequenceUi) {
+      const host = document.createElement("div");
+      host.id = "youtube-remote-sequences";
+      const shadow = host.attachShadow({ mode: "open" });
+      const style = document.createElement("style");
+      style.textContent = `
+        :host{position:fixed;right:24px;top:50%;transform:translateY(-50%);z-index:2147483647;pointer-events:none;color-scheme:light;
+          font:400 17px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","PingFang SC",sans-serif;
+          color:#34363b;-webkit-font-smoothing:antialiased}
+        *{box-sizing:border-box}
+        .panel{position:relative;display:flex;flex-direction:column;width:min(480px,calc(100vw - 48px));max-height:calc(100vh - 40px);overflow:hidden;padding:26px;
+          background:linear-gradient(145deg,rgba(255,255,255,.32),rgba(255,255,255,.06) 65%),rgba(246,247,249,.82);
+          -webkit-backdrop-filter:blur(32px) saturate(145%);backdrop-filter:blur(32px) saturate(145%);
+          border:1px solid rgba(255,255,255,.78);border-radius:28px;
+          box-shadow:0 18px 58px rgba(24,28,36,.14),0 3px 12px rgba(24,28,36,.05),inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(32,36,44,.045)}
+        h2{flex-shrink:0;font-size:23px;font-weight:600;letter-spacing:-.45px;margin:0 0 6px}
+        p{flex-shrink:0;margin:0;color:#575b63;font-size:14px;line-height:1.6}
+        .progress{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-height:44px;margin:18px 0 10px;padding:8px 12px;
+          border:1px solid rgba(255,255,255,.5);border-radius:16px;background:rgba(255,255,255,.32);color:#555960;font-size:13px}
+        .rows{position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 10px;margin:0 -10px;isolation:isolate;outline:none;
+          scrollbar-width:thin;scrollbar-color:rgba(88,101,120,.23) transparent}
+        .group-title{position:relative;z-index:1;margin:0;padding:16px 0 6px;color:#60646c;font-size:12px;font-weight:500}
+        .selection-glass + .group .group-title{padding-top:6px}
+        .selection-glass{position:absolute;top:0;left:0;right:0;z-index:0;pointer-events:none;border-radius:16px;
+          border:1px solid rgba(255,255,255,.9);background:linear-gradient(155deg,rgba(255,255,255,.6),rgba(255,255,255,.08) 55%),rgba(10,132,255,.14);
+          -webkit-backdrop-filter:blur(12px) saturate(165%);backdrop-filter:blur(12px) saturate(165%);
+          box-shadow:0 4px 16px rgba(0,100,210,.1),inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(10,132,255,.12);
+          transition:transform .36s cubic-bezier(.22,1,.36,1),height .28s ease}
+        .selection-glass:after{content:"";position:absolute;inset:1px;border-radius:14px;border-top:1px solid rgba(255,255,255,.85)}
+        .row{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:48px;padding:6px 0;border-bottom:1px solid rgba(55,59,66,.075);
+          transition:color .18s ease}
+        .row:last-child{border:0}.row>span{font-weight:450;min-width:0}
+        .keys{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:7px;max-width:65%}
+        kbd{display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:32px;padding:3px 8px;
+          border:1px solid rgba(255,255,255,.8);border-radius:10px;background:rgba(255,255,255,.4);color:#555960;
+          box-shadow:0 1px 3px rgba(32,36,44,.035),inset 0 1px 0 rgba(255,255,255,.8);font-family:inherit;font-size:18px;font-weight:500;line-height:1.2;overflow-wrap:anywhere}
+        .used{opacity:.42}.next{background:rgba(255,255,255,.92);border-color:rgba(109,115,125,.4);color:#303238;
+          box-shadow:0 2px 6px rgba(32,36,44,.07),inset 0 1px 0 #fff}
+        .danger{color:#55585f}.error{color:#92554d}
+        .row.selected,.row.selected .danger{color:#0059bd}.row.selected>span{font-weight:600}
+        .row.selected kbd{color:#0059bd;border-color:rgba(10,132,255,.22);background:rgba(255,255,255,.65)}
+        .row.selected .next{border-color:rgba(10,132,255,.5);background:rgba(255,255,255,.94);box-shadow:0 2px 6px rgba(0,100,210,.1),inset 0 1px 0 #fff}
+        .footer{margin-top:18px;font-size:13px;color:#575b63}.empty{color:#646871;font-size:13px}
+        @supports not (backdrop-filter:blur(1px)){.panel{background:rgba(247,248,250,.97)}}
+        @media(prefers-reduced-motion:reduce){.selection-glass,.row{transition:none}}
+        @media(prefers-reduced-transparency:reduce){.panel{background:#f6f7f9}.selection-glass{background:#deebfc}.panel,.selection-glass{-webkit-backdrop-filter:none;backdrop-filter:none}}
+        @media(prefers-contrast:more){.panel{background:#f6f7f9;border-color:#858991}.row{border-color:#b6b9c0}p,.footer,.empty{color:#42464d}.used{opacity:.7}.selection-glass{background:#deebfc;border-color:#0059bd}}
+        @media(max-height:580px){.panel{padding:18px}.row{min-height:38px}h2{font-size:21px}.progress{margin:12px 0 6px}.footer{margin-top:12px}}
+      `;
+      const panel = document.createElement("section");
+      panel.className = "panel";
+      panel.setAttribute("aria-label", "复合键模式");
+      const title = document.createElement("h2"); title.textContent = "复合键模式";
+      const subtitle = document.createElement("p"); subtitle.setAttribute("role", "status");
+      const progress = document.createElement("div"); progress.className = "progress";
+      const rows = document.createElement("div"); rows.className = "rows";
+      rows.setAttribute("role", "listbox"); rows.setAttribute("aria-label", "复合键指令"); rows.tabIndex = -1;
+      const glass = document.createElement("div"); glass.className = "selection-glass"; glass.setAttribute("aria-hidden", "true");
+      const footer = document.createElement("p"); footer.className = "footer";
+      panel.append(title, subtitle, progress, rows, footer);
+      shadow.append(style, panel);
+      sequenceUi = { host, panel, subtitle, progress, rows, glass, footer, signature: "" };
+    }
+    const parent = document.fullscreenElement || document.documentElement;
+    if (sequenceUi.host.parentElement !== parent) parent.append(sequenceUi.host);
+    const opening = sequenceUi.host.hidden || sequenceUi.signature === "";
+    if (sequenceUi.host.hidden) sequenceUi.host.hidden = false;
+    const candidates = sequenceChoices();
+    if (!candidates.some(item => item.action === sequenceMode.selected)) sequenceMode.selected = candidates[0]?.action || null;
+    sequenceUi.host.dataset.prefix = sequenceMode.prefix.join(",");
+    sequenceUi.host.dataset.candidates = candidates.length;
+    sequenceUi.host.dataset.selected = sequenceMode.selected || "";
+    const signature = JSON.stringify([sequenceMode.prefix, sequenceMode.error, settings.sequences, settings.bindings.back, settings.bindings.confirm]);
+    if (sequenceUi.signature === signature) { updateSequenceSelection(); return; }
+    sequenceUi.signature = signature;
+    const make = (tag, text, className = "") => {
+      const element = document.createElement(tag); element.textContent = text; element.className = className; return element;
+    };
+    const confirmLabel = settings.bindings.confirm && settings.bindings.confirm !== "Enter" ? `Enter / ${R.label(settings.bindings.confirm)}` : "Enter";
+    sequenceUi.subtitle.textContent = sequenceMode.error || (sequenceMode.prefix.length
+      ? `继续输入组合 · ${confirmLabel} 确认选中项` : `↑↓ 选择指令 · ${confirmLabel} 确认`);
+    sequenceUi.subtitle.className = sequenceMode.error ? "error" : "";
+    sequenceUi.progress.replaceChildren(make("span", sequenceMode.prefix.length ? "已输入" : "快捷输入"));
+    if (!sequenceMode.prefix.length) sequenceUi.progress.append(make("span", "← / → 开始输入组合", "empty"));
+    else {
+      for (const value of sequenceMode.prefix) sequenceUi.progress.append(make("kbd", R.label(value)));
+      sequenceUi.progress.append(make("span", `剩余 ${candidates.length} 项`, "empty"));
+    }
+    const groups = [];
+    for (const group of R.SEQUENCE_GROUPS) {
+      const matches = candidates.filter(item => Object.hasOwn(group.actions, item.action));
+      if (!matches.length) continue;
+      const section = make("div", "", "group"); section.dataset.group = group.id;
+      section.setAttribute("role", "group"); section.setAttribute("aria-label", group.title);
+      const heading = make("div", group.title, "group-title"); heading.setAttribute("aria-hidden", "true");
+      section.append(heading);
+      for (const { action, keys } of matches) {
+        const row = make("div", "", "row"); row.dataset.action = action;
+        row.id = `sequence-option-${action}`; row.setAttribute("role", "option");
+        const keyList = make("div", "", "keys");
+        keys.forEach((value, index) => keyList.append(make("kbd", R.label(value), index < sequenceMode.prefix.length ? "used" : index === sequenceMode.prefix.length ? "next" : "")));
+        if (!keys.length) keyList.append(make("span", "菜单选择", "empty"));
+        row.append(make("span", R.SEQUENCE_ACTIONS[action], action === "closeTab" ? "danger" : ""), keyList);
+        section.append(row);
+      }
+      groups.push(section);
+    }
+    sequenceUi.rows.replaceChildren(sequenceUi.glass, ...groups);
+    const backLabel = settings.bindings.back && settings.bindings.back !== "Escape" ? `Esc / ${R.label(settings.bindings.back)}` : "Esc";
+    sequenceUi.footer.textContent = `${backLabel} 退出 · Backspace 撤销一步`;
+    if (opening) sequenceUi.glass.style.transition = "none";
+    updateSequenceSelection();
+    if (opening) {
+      sequenceUi.glass.getBoundingClientRect();
+      sequenceUi.glass.style.removeProperty("transition");
+    }
+  }
+  function updateSequenceSelection() {
+    if (!sequenceMode || !sequenceUi || sequenceUi.host.hidden) return;
+    let active;
+    for (const row of sequenceUi.rows.querySelectorAll(".row")) {
+      const chosen = row.dataset.action === sequenceMode.selected;
+      row.classList.toggle("selected", chosen);
+      row.setAttribute("aria-selected", String(chosen));
+      if (chosen) active = row;
+    }
+    sequenceUi.glass.hidden = !active;
+    if (!active) { sequenceUi.rows.removeAttribute("aria-activedescendant"); return; }
+    sequenceUi.rows.setAttribute("aria-activedescendant", active.id);
+    sequenceUi.glass.style.height = `${active.offsetHeight}px`;
+    sequenceUi.glass.style.transform = `translateY(${active.offsetTop}px)`;
+    const rowBox = active.getBoundingClientRect();
+    const listBox = sequenceUi.rows.getBoundingClientRect();
+    if (rowBox.bottom > listBox.bottom - 4) sequenceUi.rows.scrollTop += rowBox.bottom - listBox.bottom + 4;
+    else if (rowBox.top < listBox.top + 4) sequenceUi.rows.scrollTop -= listBox.top + 4 - rowBox.top;
+  }
+  function cancelConfirmation() {
+    if (confirmation) clearTimeout(confirmation.timer);
+    confirmation = null;
+  }
+  function enterSequences() {
+    const saved = confirmation?.saved || snapshot();
+    cancelConfirmation();
+    cancelPending();
+    matcher.reset();
+    const input = region === "search" ? D.searchInput() : null;
+    sequenceMode = { prefix: [], selected: null, error: "", saved,
+      input, start: input?.selectionStart, end: input?.selectionEnd };
+    if (sequenceUi) sequenceUi.signature = "";
+    render();
+    sequenceUi.rows.focus({ preventScroll: true });
+  }
+  function leaveSequences(resume = false) {
+    if (!sequenceMode) return;
+    const previous = sequenceMode;
+    sequenceMode = null;
+    matcher.reset();
+    if (sequenceUi?.host.shadowRoot.activeElement) sequenceUi.host.shadowRoot.activeElement.blur();
+    render();
+    if (!resume) return;
+    if (region === "search" && D.visible(previous.input)) {
+      previous.input.focus({ preventScroll: true });
+      previous.input.setSelectionRange(previous.start, previous.end);
+    } else if (["list", "sidebar"].includes(region) && !validSelected()) restore(previous.saved, intent);
+  }
+  function consume(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    consumedKeys.add(event.code || event.key);
+  }
+  function runAction(action) {
+    void execute(action).catch(() => notice("操作暂时未完成，请稍后重试"));
+  }
+  function sequenceKey(event) {
+    consume(event);
+    const value = R.chord(event);
+    if (event.key === "Escape" || value && value === settings.bindings.back) { leaveSequences(true); return; }
+    const direction = ["ArrowUp", "ArrowDown"].includes(value) ? (value === "ArrowUp" ? "up" : "down") : R.resolve(settings, value);
+    if (!sequenceMode.prefix.length && ["up", "down"].includes(direction)) {
+      const candidates = sequenceChoices();
+      const index = candidates.findIndex(item => item.action === sequenceMode.selected);
+      sequenceMode.selected = candidates[Math.max(0, Math.min(candidates.length - 1, index + (direction === "down" ? 1 : -1)))]?.action || null;
+      sequenceMode.error = ""; render(); return;
+    }
+    if (event.repeat) return;
+    if (event.key === "Backspace") {
+      sequenceMode.prefix.pop(); sequenceMode.error = ""; render(); return;
+    }
+    if (!value) return;
+    if (value === "Enter" || value === settings.bindings.confirm) {
+      const candidates = sequenceChoices();
+      const action = candidates.find(item => item.action === sequenceMode.selected)?.action;
+      if (action) { leaveSequences(true); runAction(action); }
+      return;
+    }
+    sequenceMode.prefix.push(value);
+    const result = R.sequenceCandidates(settings.sequences, sequenceMode.prefix);
+    if (!result.candidates.length) {
+      sequenceMode.prefix = []; sequenceMode.error = "没有匹配，已重置，请重试";
+    } else sequenceMode.error = "";
+    if (result.action) {
+      leaveSequences(true);
+      runAction(result.action);
+    } else render();
+  }
+  function confirmKey() {
+    if (confirmation && performance.now() <= confirmation.deadline) { enterSequences(); return; }
+    cancelConfirmation();
+    const waiting = { deadline: performance.now() + settings.doubleInterval, route, region, token: intent,
+      saved: snapshot(), selectedId: ["list", "sidebar"].includes(region) ? selected?.id : null };
+    waiting.timer = setTimeout(() => {
+      if (confirmation !== waiting) return;
+      confirmation = null;
+      // Replaced renderers may still represent the same video. Only confirm that saved video.
+      if (waiting.selectedId && validSelected()?.id !== waiting.selectedId) return;
+      if (settings.enabled && waiting.route === D.routeKey() && waiting.region === region && waiting.token === intent &&
+        !composing && (region === "search" || !D.overlay())) runAction("confirm");
+    }, settings.doubleInterval);
+    confirmation = waiting;
+  }
+  function playerMenuKey(event) {
+    if (!D.playerMenuItem() || !D.player()?.contains(document.activeElement)) return false;
+    const value = R.chord(event);
+    const action = value === "Enter" ? "confirm" : R.resolve(settings, value);
+    const keys = { up: ["ArrowUp", 38], down: ["ArrowDown", 40], left: ["ArrowLeft", 37], right: ["ArrowRight", 39], back: ["Escape", 27] };
+    if (action !== "confirm" && !keys[action]) return false;
+    cancelConfirmation(); cancelPending(); matcher.reset(); logEvent(event, action);
+    if (event.defaultPrevented) return true;
+    if (action === "confirm") {
+      consume(event);
+      const item = document.activeElement?.closest("[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']");
+      if (!event.repeat) item?.click();
+      return true;
+    }
+    const [key, keyCode] = keys[action];
+    if (event.key !== key) {
+      consume(event);
+      const forwarded = new KeyboardEvent("keydown", { key, code: key, keyCode, which: keyCode, bubbles: true, cancelable: true });
+      synthetic.add(forwarded);
+      document.activeElement.dispatchEvent(forwarded);
+    }
+    return true;
   }
   function notice(message) {
     transient = message;
@@ -181,6 +451,8 @@
   async function enterRoute(back = false, force = false) {
     const nextRoute = D.routeKey();
     if (!force && nextRoute === route) return;
+    cancelConfirmation();
+    leaveSequences();
     if (lastSnapshot && nextRoute !== route) send({ type: "remote:save", route, snapshot: lastSnapshot });
     clearTimeout(saveTimer);
     cancelPending();
@@ -250,6 +522,29 @@
     if (!video) return notice("播放器尚未就绪");
     try { if (video.paused) await video.play(); else video.pause(); }
     catch (_) { notice("播放被浏览器阻止，请在播放器上确认播放"); }
+  }
+  async function playerFeature(action, token) {
+    const video = D.video();
+    if (!D.isWatch() && !D.isShorts() || !video) return notice("请先打开视频播放页");
+    if (action === "mute") {
+      video.muted = !video.muted;
+      notice(video.muted ? "已静音" : "已取消静音");
+      return;
+    }
+    if (action === "theater" && !await exitFullscreen() || token !== intent) return;
+    const control = D.playerControl(action);
+    if (!control) return notice(action === "captions" ? "当前视频没有可用字幕" : action === "theater" ? "当前播放器不支持影院模式" : "播放器设置暂不可用");
+    if (action === "playerSettings") enterPlayer();
+    control.click();
+    if (action === "playerSettings") {
+      waitFor(() => {
+        const item = D.playerMenuItem();
+        if (!item) return false;
+        if (item.tabIndex < 0) item.tabIndex = 0;
+        item.focus({ preventScroll: true });
+        return document.activeElement === item;
+      }, () => notice("请在播放器中选择设置项"), token);
+    } else notice(action === "captions" ? "已切换字幕" : "已切换影院模式");
   }
   async function fullscreen() {
     if (document.fullscreenElement) return exitFullscreen();
@@ -335,6 +630,13 @@
   async function execute(action) {
     cancelPending();
     const token = intent;
+    if (action === "closeTab" || action === "reload") {
+      await remember(true);
+      if (token !== intent) return;
+      const result = await send({ type: "remote:tab-command", command: action });
+      if (result?.ok === false) notice(action === "closeTab" ? "无法关闭当前标签页，请重试" : "无法刷新页面，请重试");
+      return;
+    }
     if (["up", "down", "left", "right"].includes(action)) return region === "player" ? playerMove(action) : move(action);
     if (action === "search") return enterSearch(token);
     if (action === "home") return goHome(token);
@@ -342,6 +644,7 @@
     if (action === "player") return enterPlayer();
     if (action === "confirm") return confirm();
     if (action === "togglePlayback") return togglePlayback();
+    if (["mute", "captions", "theater", "playerSettings"].includes(action)) return playerFeature(action, token);
     if (action === "fullscreen") return fullscreen();
     if (action === "historyBack") return historyBack();
     if (action === "back") {
@@ -361,8 +664,11 @@
     if (synthetic.has(event)) return;
     if (D.routeKey() !== route) void enterRoute();
     if (event.isComposing || composing || event.keyCode === 229 || event.key === "Process") {
-      matcher.reset(); logEvent(event); return;
+      cancelConfirmation(); leaveSequences(); matcher.reset(); logEvent(event); return;
     }
+    if (sequenceMode && region !== "search" && D.overlay()) leaveSequences();
+    if (settings.enabled && sequenceMode) { logEvent(event, "sequence"); sequenceKey(event); return; }
+    if (settings.enabled && playerMenuKey(event)) return;
     if (event.key === "Tab") { tabFocus = true; cancelPending(); }
     const input = D.searchInput();
     const atSearch = input && (event.target === input || document.activeElement === input);
@@ -370,8 +676,10 @@
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     }
     const inSearch = atSearch && region === "search";
-    const action = matcher.match(event, settings, region);
+    let action = matcher.match(event, settings, region);
+    if (event.repeat && R.resolve(settings, R.chord(event)) === "confirm") action = "confirm";
     logEvent(event, action);
+    if (action !== "confirm" || event.defaultPrevented) cancelConfirmation();
     if (!settings.enabled || !action) return;
     if (event.defaultPrevented) return;
     if (D.editing(event.target) && event.key?.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -380,7 +688,7 @@
     if (D.editing(event.target) && !atSearch && action !== "search") { matcher.reset(); cancelPending(); return; }
     if (inSearch && ["up", "down", "left", "right"].includes(action)) return;
     if (inSearch && action === "confirm" && performance.now() - compositionEnded < 80) {
-      event.preventDefault(); event.stopImmediatePropagation(); return;
+      cancelConfirmation(); consume(event); return;
     }
     const dialog = D.overlay();
     if (dialog && !inSearch) {
@@ -392,26 +700,43 @@
       }
       if (["search", "sidebar", "player"].includes(action)) notice("请先用返回键关闭页面弹窗");
       matcher.reset();
+      cancelConfirmation();
       return;
     }
     if (D.isShorts() && ["up", "down", "left", "right"].includes(action)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    consume(event);
     const directional = ["up", "down", "left", "right"].includes(action);
     if (navigationBusy) return;
+    if (action === "confirm") {
+      if (!event.repeat) confirmKey();
+      return;
+    }
     if (!directional && (event.repeat || lastActivation.action === action && event.timeStamp - lastActivation.time < 250)) return;
     if (!directional) lastActivation = { action, time: event.timeStamp };
-    void execute(action).catch(() => notice("操作暂时未完成，请稍后重试"));
+    runAction(action);
   }, true);
-  window.addEventListener("compositionstart", (e) => { composing = true; matcher.reset(); logEvent(e); }, true);
+  window.addEventListener("keyup", (event) => {
+    if (!consumedKeys.delete(event.code || event.key)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("keypress", (event) => {
+    if (!consumedKeys.has(event.code || event.key)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+  }, true);
+  window.addEventListener("compositionstart", (e) => {
+    composing = true; cancelConfirmation(); leaveSequences(); matcher.reset(); logEvent(e);
+  }, true);
   window.addEventListener("compositionend", (e) => { composing = false; compositionEnded = performance.now(); logEvent(e); }, true);
   window.addEventListener("beforeinput", (e) => {
+    if (settings.enabled && sequenceMode) { e.preventDefault(); logEvent(e); return; }
+    cancelConfirmation();
     if (settings.enabled && e.target === D.searchInput() && region !== "search") {
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     }
     logEvent(e);
   }, true);
   window.addEventListener("pointerdown", (event) => {
+    cancelConfirmation(); leaveSequences();
     if (!settings.enabled || !D.editing(event.target)) return;
     cancelPending(); matcher.reset();
     if (event.target === D.searchInput() && region !== "search") { searchReturn = snapshot(); setRegion("search"); }
@@ -420,18 +745,19 @@
     if (settings.enabled && tabFocus && event.target === D.searchInput() && region !== "search") {
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     } else if (settings.enabled && D.editing(event.target) && event.target !== D.searchInput()) {
-      cancelPending(); matcher.reset();
+      cancelConfirmation(); cancelPending(); matcher.reset();
     }
     tabFocus = false;
   }, true);
   document.addEventListener("fullscreenchange", render);
   window.addEventListener("popstate", () => void enterRoute(true));
   window.addEventListener("pageshow", (event) => { if (event.persisted) void enterRoute(true, true); });
-  window.addEventListener("pagehide", () => { void remember(true); cancelPending(); });
-  document.addEventListener("yt-navigate-start", () => void remember(true));
+  window.addEventListener("blur", () => { cancelConfirmation(); leaveSequences(); matcher.reset(); consumedKeys.clear(); });
+  window.addEventListener("pagehide", () => { cancelConfirmation(); leaveSequences(); void remember(true); cancelPending(); });
+  document.addEventListener("yt-navigate-start", () => { cancelConfirmation(); leaveSequences(); void remember(true); });
   document.addEventListener("yt-navigate-finish", () => void enterRoute());
   window.addEventListener("scroll", () => { if (!pending && D.routeKey() === route) remember(); }, true);
-  window.addEventListener("resize", () => { if (pending) tickPending(); });
+  window.addEventListener("resize", () => { if (pending) tickPending(); updateSequenceSelection(); });
   new MutationObserver(() => {
     if (mutationTimer) return;
     mutationTimer = setTimeout(() => {
@@ -440,7 +766,7 @@
       if (selected && (!D.visible(selected.element) || D.identity(selected.link.href) !== selected.id)) {
         const saved = { ...(lastSnapshot || snapshot()), id: selected.id, index: selectedIndex };
         clearSelection();
-        if (!pending && settings.enabled && ["list", "sidebar"].includes(region) &&
+        if (!pending && !sequenceMode && settings.enabled && ["list", "sidebar"].includes(region) &&
           (!D.editing(document.activeElement) || document.activeElement === D.searchInput())) restore(saved, intent);
       }
       if (pending) tickPending();
@@ -451,6 +777,7 @@
     if (areaName !== "local") return;
     if (changes.diagnosticsUntil) diagnosticsUntil = Number(changes.diagnosticsUntil.newValue) || 0;
     if (changes.remoteSettings) {
+      cancelConfirmation(); leaveSequences();
       settings = R.normalize(changes.remoteSettings.newValue);
       cancelPending(); matcher.reset();
       if (!settings.enabled) clearHighlight();

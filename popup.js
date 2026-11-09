@@ -4,6 +4,8 @@ async function render() {
   const stored = await chrome.storage.local.get("remoteSettings");
   const settings = R.normalize(stored.remoteSettings);
   document.getElementById("enabled").checked = settings.enabled;
+  document.getElementById("sequence-help").textContent = settings.bindings.confirm ?
+    `双击 ${R.label(settings.bindings.confirm)} 进入复合键。↑↓ 选择，Enter 确认；← / → 开始组合，Esc 退出。` : "请在设置中绑定确认键，以启用复合键模式。";
   const list = document.getElementById("shortcuts"); list.replaceChildren();
   for (const action of ["confirm", "back", "home", "search", "sidebar", "player", "togglePlayback", "fullscreen", "historyBack"]) {
     const row = document.createElement("div"); row.className = "shortcut";
