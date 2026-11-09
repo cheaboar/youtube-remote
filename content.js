@@ -80,12 +80,13 @@
     if (ui.host.parentElement !== uiParent) uiParent.append(ui.host);
     const title = names[region];
     const detail = transient || (region === "search" ? "语音输入后按确认，返回清空并退出" : region === "player"
-      ? `确认播放 / 暂停 · ${R.label(settings.bindings.sidebar)} 选片` : "方向键选片 · 确认播放");
+      ? settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键"
+      : "方向键选片 · 确认播放");
     if (ui.title.textContent !== title) ui.title.textContent = title;
     if (ui.detail.textContent !== detail) ui.detail.textContent = detail;
     ui.host.dataset.region = region;
     ui.host.dataset.confirm = settings.bindings.confirm;
-    const hidden = !settings.enabled || !!sequenceMode || (!settings.showStatus && !transient);
+    const hidden = !settings.enabled || !!document.fullscreenElement || !!sequenceMode || (!settings.showStatus && !transient);
     if (ui.host.hidden !== hidden) ui.host.hidden = hidden;
     renderSequences();
   }
