@@ -7,7 +7,7 @@ async function render() {
   document.getElementById("sequence-help").textContent = settings.bindings.confirm ?
     `双击 ${R.label(settings.bindings.confirm)} 进入复合键。↑↓ 选择，Enter 确认；← / → 开始组合，Esc 退出。` : "请在设置中绑定确认键，以启用复合键模式。";
   const list = document.getElementById("shortcuts"); list.replaceChildren();
-  for (const action of ["confirm", "back", "home", "search", "sidebar", "player", "togglePlayback", "fullscreen", "historyBack"]) {
+  for (const action of ["confirm", "back", "home", "search", "guide", "sidebar", "player", "togglePlayback", "fullscreen", "historyBack"]) {
     const row = document.createElement("div"); row.className = "shortcut";
     const title = document.createElement("dt"); title.textContent = R.ACTIONS[action];
     const value = document.createElement("dd"); const key = document.createElement("kbd"); key.textContent = R.label(settings.bindings[action]); value.append(key);

@@ -99,13 +99,13 @@ test("a pending single confirm cannot open a different video after the selected 
 test("double confirm filters candidates without opening a video, and supports undo, errors and cancel", async () => {
   const page = await pageAt('/'); await selected(page, 'v0');
   await press(page, 'ArrowRight'); await selected(page, 'v1');
-  await enter(page); await prefix(page, 12);
+  await enter(page); await prefix(page, 13);
   assert.equal(new URL(page.url()).pathname, '/');
-  await press(page, 'ArrowLeft'); await prefix(page, 8); await selected(page, 'v1');
-  assert.equal(await page.locator('#youtube-remote-sequences .row').count(), 8);
+  await press(page, 'ArrowLeft'); await prefix(page, 9); await selected(page, 'v1');
+  assert.equal(await page.locator('#youtube-remote-sequences .row').count(), 9);
   await page.screenshot({ path: 'test-results/sequences-filtered.png' });
-  await press(page, 'Backspace'); await prefix(page, 12);
-  await press(page, 'z'); await prefix(page, 12);
+  await press(page, 'Backspace'); await prefix(page, 13);
+  await press(page, 'z'); await prefix(page, 13);
   assert.match(await page.locator('#youtube-remote-sequences [role="status"]').textContent(), /没有匹配，已重置/);
   await page.screenshot({ path: 'test-results/sequences-all.png' });
   await press(page, 'Escape'); await noMode(page); await selected(page, 'v1');
@@ -171,7 +171,7 @@ test("search text and selection survive cancel, and search, home and history seq
   await page.waitForFunction(() => document.activeElement?.name === 'search_query');
   await page.keyboard.insertText('蓝牙语音文字');
   await page.locator('input').evaluate(input => input.setSelectionRange(1, 3));
-  await enter(page); await press(page, 'ArrowLeft'); await prefix(page, 8);
+  await enter(page); await press(page, 'ArrowLeft'); await prefix(page, 9);
   await press(page, 'Escape'); await noMode(page);
   assert.equal(await page.locator('input').inputValue(), '蓝牙语音文字');
   assert.deepEqual(await page.locator('input').evaluate(input => [input === document.activeElement, input.selectionStart, input.selectionEnd]), [true, 1, 3]);
@@ -228,7 +228,7 @@ test("recorded sequences and remapped confirm/back work live, including when the
   await options.screenshot({ path: 'test-results/sequence-settings.png', fullPage: true });
   const page = await pageAt('/', 'F8'); await selected(page, 'v0');
   assert.equal(await page.locator('#youtube-remote-status').isVisible(), false);
-  await enter(page, 'F8'); await press(page, 'ArrowLeft'); await prefix(page, 8);
+  await enter(page, 'F8'); await press(page, 'ArrowLeft'); await prefix(page, 9);
   await press(page, 'F9'); await noMode(page); await selected(page, 'v0');
   await enter(page, 'F8'); await press(page, 'ArrowLeft'); await press(page, 'F6'); await prefix(page, 1);
   await page.evaluate(() => { window.beforeReload = true; });
@@ -278,7 +278,7 @@ test("menu arrows select grouped commands with a persistent blue glass highlight
   await press(page, 'ArrowUp'); await menuSelected(page, 'togglePlayback');
   const glass = await page.locator('#youtube-remote-sequences .selection-glass').elementHandle();
   await page.keyboard.down('ArrowDown'); await page.keyboard.down('ArrowDown'); await page.keyboard.up('ArrowDown');
-  await menuSelected(page, 'search'); await prefix(page, 12);
+  await menuSelected(page, 'search'); await prefix(page, 13);
   assert.equal(await glass.evaluate(element => element === element.getRootNode().querySelector('.selection-glass')), true);
   assert.equal(await page.locator('#youtube-remote-sequences [aria-selected="true"]').getAttribute('data-action'), 'search');
   await page.waitForTimeout(400);
@@ -327,7 +327,7 @@ test("Return and a remapped confirm both execute menu selections, including afte
   await enter(page, 'F8'); await choose(page, 'mute'); await press(page, 'F8'); await noMode(page);
   assert.equal(await page.locator('video').evaluate(video => video.muted), false);
   await enter(page, 'F8'); await press(page, 'ArrowLeft'); await press(page, 'Backspace');
-  await press(page, 'ArrowDown'); await menuSelected(page, 'sidebar'); await prefix(page, 12);
+  await press(page, 'ArrowDown'); await menuSelected(page, 'sidebar'); await prefix(page, 13);
   await press(page, 'Escape'); await noMode(page);
   await page.close();
 });
@@ -376,7 +376,7 @@ test("commands with cleared or conflicting shortcut sequences remain executable 
   const settings = R.cloneDefaults(); settings.sequences.mute = [];
   await worker.evaluate(settings => chrome.storage.local.set({ remoteSettings: settings }), settings);
   const page = await pageAt('/watch?v=p0'); await region(page, 'player');
-  await enter(page); await prefix(page, 12); await choose(page, 'mute');
+  await enter(page); await prefix(page, 13); await choose(page, 'mute');
   assert.match(await page.locator('#youtube-remote-sequences .row.selected').textContent(), /菜单选择/);
   await press(page, 'Enter'); await noMode(page);
   assert.equal(await page.locator('video').evaluate(video => video.muted), true);

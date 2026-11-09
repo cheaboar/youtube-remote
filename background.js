@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     }
     if (message.type === "remote:save" && typeof message.route === "string" && message.route.length < 4096) {
       const snapshot = message.snapshot;
-      if (!snapshot || !["list", "sidebar", "player"].includes(snapshot.region)) return respond(null);
+      if (!snapshot || !["list", "sidebar", "guide", "player"].includes(snapshot.region)) return respond(null);
       delete stored.routes[message.route];
       stored.routes[message.route] = snapshot;
       while (Object.keys(stored.routes).length > 30) delete stored.routes[Object.keys(stored.routes)[0]];

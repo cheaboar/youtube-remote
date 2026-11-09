@@ -20,10 +20,11 @@
     u.searchParams.sort();
     return u.pathname + u.search;
   }
-  function identity(href) {
+  function identity(href, area = "list") {
     try {
       const u = new URL(href, location.href);
       if (u.hostname !== "www.youtube.com") return null;
+      if (area === "guide") return `guide:${u.pathname}${u.search}`;
       if (u.pathname === "/watch" && u.searchParams.get("v")) return `video:${u.searchParams.get("v")}`;
       if (u.pathname === "/playlist" && u.searchParams.get("list")) return `playlist:${u.searchParams.get("list")}`;
       if (/^\/(shorts|live)\/[^/]+/.test(u.pathname)) return u.pathname;
@@ -32,6 +33,7 @@
   }
   function watchRoot() { return [...document.querySelectorAll("ytd-watch-flexy")].find(visible) || document; }
   function candidates(area = "list") {
+    if (area === "guide") return guideItems();
     let roots = [document];
     if (area === "list") {
       const pages = [...document.querySelectorAll(location.pathname === "/results" ? "ytd-search" : "ytd-browse")];
@@ -57,6 +59,20 @@
   }
   function firstVisible(items) {
     return items.find((item) => item.rect.bottom > 70 && item.rect.top < innerHeight) || items[0];
+  }
+  function guideItems() {
+    const roots = [...document.querySelectorAll("ytd-guide-renderer,ytd-mini-guide-renderer")].filter(visible);
+    const result = new Map();
+    for (const root of roots) for (const link of root.querySelectorAll("a[href]")) {
+      const element = link.closest("ytd-guide-entry-renderer,ytd-mini-guide-entry-renderer");
+      const id = identity(link.href, "guide");
+      if (!element || !root.contains(element) || !id || !visible(element) || !visible(link) || link.getAttribute("aria-disabled") === "true") continue;
+      if (!result.has(id)) result.set(id, { element, link, id, rect: element.getBoundingClientRect() });
+    }
+    return [...result.values()].sort((a, b) => a.rect.top - b.rect.top);
+  }
+  function guideButton() {
+    return [...document.querySelectorAll("#guide-button button,button#guide-button")].find(visible);
   }
   function sidebar() {
     const playlist = candidates("playlist");
@@ -97,7 +113,8 @@
   }
   function overlay() {
     return [...document.querySelectorAll("dialog[open],[role='dialog'],[aria-modal='true'],tp-yt-paper-dialog,tp-yt-iron-dropdown,[role='menu']")]
-      .find(element => !element.matches("yt-player-interstitial-renderer") && visible(element));
+      .find(element => !element.matches("yt-player-interstitial-renderer") &&
+        !(element.matches("tp-yt-app-drawer") && element.querySelector("ytd-guide-renderer") || element.matches("ytd-guide-renderer")) && visible(element));
   }
   function scrollParent(element) {
     for (let parent = element?.parentElement; parent && parent !== document.body && parent !== document.documentElement; parent = parent.parentElement) {
@@ -118,6 +135,6 @@
     if (button) { button.click(); return true; }
     return false;
   }
-  globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, sidebar, expandPlaylist,
+  globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, guideItems, guideButton, sidebar, expandPlaylist,
     searchInput, editing, video, player, playerControl, playerMenuItem, overlay, scrollParent, scrollForMore, submitSearch };
 })();

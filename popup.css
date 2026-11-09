@@ -52,7 +52,7 @@ h2 { font-size: 13px; line-height: 1.4; font-weight: 600; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 32px;
+  min-height: 28px;
   font-size: 12px;
 }
 .shortcut + .shortcut { border-top: 1px solid rgba(72, 78, 90, .08); }

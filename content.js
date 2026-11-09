@@ -5,7 +5,8 @@
   const { nextItem } = globalThis.YouTubeKeyboardNavigation;
   const matcher = R.createMatcher();
   const highlight = "youtube-keyboard-selected";
-  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", search: "搜索" };
+  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", guide: "左侧导航", search: "搜索" };
+  const selectionRegions = ["list", "sidebar", "guide"];
   let settings = R.cloneDefaults();
   let diagnosticsUntil = 0;
   let route = D.routeKey();
@@ -14,6 +15,8 @@
   let selected = null;
   let selectedIndex = 0;
   let searchReturn = null;
+  let guideReturn = null;
+  let guideOpened = false;
   let lastSnapshot = null;
   let intent = 0;
   let pending = null;
@@ -25,7 +28,7 @@
   let composing = false;
   let compositionEnded = -Infinity;
   let navigationBusy = false;
-  let lastActivation = { action: "", time: -Infinity };
+  let lastActivation = { action: "", time: -Infinity, context: "" };
   let ui;
   let sequenceUi;
   let sequenceMode = null;
@@ -39,7 +42,7 @@
     try { return chrome.runtime.sendMessage(message).catch(() => null); }
     catch (_) { return Promise.resolve(null); }
   }
-  function items() { return D.candidates(region === "sidebar" ? area : "list"); }
+  function items() { return D.candidates(region === "guide" ? "guide" : region === "sidebar" ? area : "list"); }
   function sequenceChoices() {
     return sequenceMode?.prefix.length ? R.sequenceCandidates(settings.sequences, sequenceMode.prefix).candidates :
       Object.keys(R.SEQUENCE_ACTIONS).map(action => ({ action, keys: settings.sequences[action] || [] }));
@@ -81,7 +84,7 @@
     const title = names[region];
     const detail = transient || (region === "search" ? "语音输入后按确认，返回清空并退出" : region === "player"
       ? settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键"
-      : "方向键选片 · 确认播放");
+      : region === "guide" ? "↑↓选择导航 · 确认打开 · → 返回节目" : "方向键选片 · 确认播放");
     if (ui.title.textContent !== title) ui.title.textContent = title;
     if (ui.detail.textContent !== detail) ui.detail.textContent = detail;
     ui.host.dataset.region = region;
@@ -258,7 +261,7 @@
     if (region === "search" && D.visible(previous.input)) {
       previous.input.focus({ preventScroll: true });
       previous.input.setSelectionRange(previous.start, previous.end);
-    } else if (["list", "sidebar"].includes(region) && !validSelected()) restore(previous.saved, intent);
+    } else if (selectionRegions.includes(region) && !validSelected()) restore(previous.saved, intent);
   }
   function consume(event) {
     event.preventDefault();
@@ -304,7 +307,7 @@
     if (confirmation && performance.now() <= confirmation.deadline) { enterSequences(); return; }
     cancelConfirmation();
     const waiting = { deadline: performance.now() + settings.doubleInterval, route, region, token: intent,
-      saved: snapshot(), selectedId: ["list", "sidebar"].includes(region) ? selected?.id : null };
+      saved: snapshot(), selectedId: selectionRegions.includes(region) ? selected?.id : null };
     waiting.timer = setTimeout(() => {
       if (confirmation !== waiting) return;
       confirmation = null;
@@ -347,7 +350,7 @@
   function setRegion(value) {
     region = value;
     matcher.reset();
-    if (!["list", "sidebar"].includes(region)) clearHighlight();
+    if (!selectionRegions.includes(region)) clearHighlight();
     render();
   }
   function ownFocus() {
@@ -357,7 +360,8 @@
   function snapshot() {
     if (region === "search" && searchReturn) return searchReturn;
     return { region, area, id: selected?.id || null, index: selectedIndex,
-      x: scrollX, y: scrollY, innerScroll: D.scrollParent(selected?.element)?.scrollTop || 0 };
+      x: scrollX, y: scrollY, innerScroll: D.scrollParent(selected?.element)?.scrollTop || 0,
+      ...(region === "guide" && guideReturn ? { returnTo: guideReturn } : {}) };
   }
   function remember(immediate = false) {
     if (!settings.enabled) return Promise.resolve();
@@ -414,6 +418,7 @@
       available.find((item) => item.id === selected.id) || null;
   }
   function restore(saved, token) {
+    if (saved?.region === "guide") { void enterGuide(token, saved); return; }
     area = saved?.area === "playlist" ? "playlist" : "recommendations";
     setRegion(saved?.region === "sidebar" && D.isWatch() ? "sidebar" : D.isWatch() || D.isShorts() ? "player" : "list");
     if (region === "player") { ownFocus(); remember(); return; }
@@ -461,6 +466,8 @@
     route = nextRoute;
     clearSelection();
     searchReturn = null;
+    guideReturn = null;
+    guideOpened = false;
     lastSnapshot = null;
     navigationBusy = false;
     setRegion(D.isWatch() || D.isShorts() ? "player" : "list");
@@ -510,6 +517,44 @@
       render();
       return true;
     }, () => { setRegion("player"); notice("右侧暂时没有可选节目，请稍后重试"); }, token);
+  }
+  async function enterGuide(token, saved = null) {
+    if (!saved && region === "guide") saved = snapshot();
+    if (region !== "guide") {
+      guideReturn = saved?.returnTo || (region === "search" && searchReturn?.region === "guide" ? searchReturn.returnTo : snapshot());
+    } else if (saved?.returnTo) guideReturn = saved.returnTo;
+    if (!await exitFullscreen() || token !== intent) return;
+    ownFocus();
+    searchReturn = null;
+    clearSelection();
+    setRegion("guide");
+    notice("正在定位左侧导航…");
+    let attempted = false;
+    waitFor(() => {
+      const list = D.guideItems();
+      if (!list.length) {
+        const button = D.guideButton();
+        if (!attempted && button) { attempted = true; button.click(); guideOpened = true; }
+        return false;
+      }
+      const chosen = saved?.id && list.find(item => item.id === saved.id) ||
+        list.find(item => item.id === D.identity(location.href, "guide")) ||
+        list.find(item => new URL(item.link.href).pathname === location.pathname) || list[Math.min(saved?.index || 0, list.length - 1)];
+      const parent = D.scrollParent(chosen.element);
+      if (parent && saved?.innerScroll) parent.scrollTop = saved.innerScroll;
+      select(chosen);
+      transient = ""; render();
+      return true;
+    }, () => { backFromGuide(); notice("未找到左侧导航，可稍后重试"); }, token);
+  }
+  function backFromGuide() {
+    const saved = guideReturn;
+    guideReturn = null;
+    if (guideOpened && D.guideItems().length) D.guideButton()?.click();
+    guideOpened = false;
+    transient = "";
+    clearSelection();
+    restore(saved, intent);
   }
   function enterPlayer() {
     if (!D.isWatch() && !D.isShorts()) { notice("当前页面没有播放器"); return; }
@@ -571,6 +616,16 @@
   }
   function move(action) {
     const list = items();
+    if (region === "guide") {
+      if (action === "right") return backFromGuide();
+      if (action === "left") return ownFocus();
+      if (list.length) {
+        const current = validSelected();
+        const index = list.findIndex(item => item.element === current?.element);
+        return select(list[Math.max(0, Math.min(list.length - 1, index + (action === "down" ? 1 : -1)))]);
+      }
+    }
+    if (!list.length && region === "list" && location.pathname === "/" && action === "left") return enterGuide(intent);
     if (!list.length) {
       notice("正在等待节目加载…");
       waitFor(() => { const available = items(); if (!available.length) return false; select(D.firstVisible(available)); return true; },
@@ -579,6 +634,7 @@
     }
     const current = validSelected();
     const next = current ? nextItem(list, current.element, `Arrow${action[0].toUpperCase()}${action.slice(1)}`) : D.firstVisible(list);
+    if (region === "list" && location.pathname === "/" && action === "left" && current?.element === next.element) return enterGuide(intent);
     if (next.element !== selected?.element || !next.element.classList.contains(highlight)) select(next);
     else ownFocus();
     if (action === "down" && nextItem(list, next.element, "ArrowDown").element === next.element) D.scrollForMore(next.element);
@@ -642,6 +698,7 @@
     if (action === "search") return enterSearch(token);
     if (action === "home") return goHome(token);
     if (action === "sidebar") return enterSidebar(token);
+    if (action === "guide") return enterGuide(token);
     if (action === "player") return enterPlayer();
     if (action === "confirm") return confirm();
     if (action === "togglePlayback") return togglePlayback();
@@ -651,6 +708,7 @@
     if (action === "back") {
       if (region === "search") return backFromSearch();
       if (document.fullscreenElement) return exitFullscreen();
+      if (region === "guide") return backFromGuide();
       if (region === "sidebar") return enterPlayer();
       return historyBack();
     }
@@ -699,12 +757,12 @@
         synthetic.add(escape);
         (document.activeElement || dialog).dispatchEvent(escape);
       }
-      if (["search", "sidebar", "player"].includes(action)) notice("请先用返回键关闭页面弹窗");
+      if (["search", "sidebar", "guide", "player"].includes(action)) notice("请先用返回键关闭页面弹窗");
       matcher.reset();
       cancelConfirmation();
       return;
     }
-    if (D.isShorts() && ["up", "down", "left", "right"].includes(action)) return;
+    if (D.isShorts() && region === "player" && ["up", "down", "left", "right"].includes(action)) return;
     consume(event);
     const directional = ["up", "down", "left", "right"].includes(action);
     if (navigationBusy) return;
@@ -712,8 +770,9 @@
       if (!event.repeat) confirmKey();
       return;
     }
-    if (!directional && (event.repeat || lastActivation.action === action && event.timeStamp - lastActivation.time < 250)) return;
-    if (!directional) lastActivation = { action, time: event.timeStamp };
+    const activationContext = `${route}:${region}:${!!document.fullscreenElement}`;
+    if (!directional && (event.repeat || lastActivation.action === action && lastActivation.context === activationContext && event.timeStamp - lastActivation.time < 250)) return;
+    if (!directional) lastActivation = { action, time: event.timeStamp, context: activationContext };
     runAction(action);
   }, true);
   window.addEventListener("keyup", (event) => {
@@ -764,10 +823,10 @@
     mutationTimer = setTimeout(() => {
       mutationTimer = null;
       if (D.routeKey() !== route) void enterRoute();
-      if (selected && (!D.visible(selected.element) || D.identity(selected.link.href) !== selected.id)) {
+      if (selected && (!D.visible(selected.element) || D.identity(selected.link.href, selected.id.startsWith("guide:") ? "guide" : "list") !== selected.id)) {
         const saved = { ...(lastSnapshot || snapshot()), id: selected.id, index: selectedIndex };
         clearSelection();
-        if (!pending && !sequenceMode && settings.enabled && ["list", "sidebar"].includes(region) &&
+        if (!pending && !sequenceMode && settings.enabled && selectionRegions.includes(region) &&
           (!D.editing(document.activeElement) || document.activeElement === D.searchInput())) restore(saved, intent);
       }
       if (pending) tickPending();
@@ -782,7 +841,7 @@
       settings = R.normalize(changes.remoteSettings.newValue);
       cancelPending(); matcher.reset();
       if (!settings.enabled) clearHighlight();
-      else if (selected && ["list", "sidebar"].includes(region)) selected.element.classList.add(highlight);
+      else if (selected && selectionRegions.includes(region)) selected.element.classList.add(highlight);
       render();
     }
   });

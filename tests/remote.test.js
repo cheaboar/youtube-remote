@@ -77,7 +77,7 @@ test("other keys and reset break a double tap sequence", () => {
 
 test("sequence candidates filter by ordered prefix and only complete at an exact match", () => {
   const { sequences } = R.cloneDefaults();
-  assert.equal(R.sequenceCandidates(sequences, []).candidates.length, 12);
+  assert.equal(R.sequenceCandidates(sequences, []).candidates.length, 13);
   assert.ok(Object.values(sequences).every(keys => ["ArrowLeft", "ArrowRight"].includes(keys[0])));
   const partial = R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowDown"]);
   assert.deepEqual(partial.candidates.map(item => item.action), ["mute", "captions", "theater", "playerSettings"]);
@@ -158,4 +158,22 @@ test("adding player commands preserves custom sequences and disables conflicting
   assert.deepEqual(migrated.sequences.fullscreen, []);
   for (const action of ["mute", "captions", "theater", "playerSettings"]) assert.deepEqual(migrated.sequences[action], []);
   assert.equal(R.validate(migrated), "");
+});
+
+test("adding guide controls preserves legacy mappings, including an occupied guide shortcut", () => {
+  const legacy = R.cloneDefaults();
+  delete legacy.bindings.guide; delete legacy.sequences.guide;
+  legacy.bindings.confirm = "F8";
+  legacy.bindings.search = "Alt+Shift+KeyG";
+  legacy.sequences.reload = ["ArrowLeft", "ArrowRight"];
+  legacy.sequences.closeTab = ["F5", "F6"];
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.bindings.guide, "");
+  assert.equal(migrated.bindings.confirm, "F8");
+  assert.equal(migrated.bindings.search, "Alt+Shift+KeyG");
+  assert.deepEqual(migrated.sequences.guide, []);
+  assert.deepEqual(migrated.sequences.reload, legacy.sequences.reload);
+  assert.equal(R.validate(migrated), "");
+  legacy.bindings.search = "F7";
+  assert.equal(R.normalize(legacy).bindings.guide, "Alt+Shift+KeyG");
 });

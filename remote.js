@@ -6,13 +6,13 @@
   "use strict";
   const ACTIONS = {
     up: "向上", down: "向下", left: "向左", right: "向右", confirm: "确认",
-    back: "逐层返回", home: "首页", search: "搜索", sidebar: "右侧列表", player: "播放器",
+    back: "逐层返回", home: "首页", search: "搜索", guide: "左侧导航", sidebar: "右侧列表", player: "播放器",
     togglePlayback: "播放 / 暂停", fullscreen: "视频全屏", historyBack: "直接返回上一页"
   };
   const DOUBLE_ACTIONS = ["search", "sidebar", "player", "togglePlayback", "fullscreen"];
   const SEQUENCE_GROUPS = [
     { id: "common", title: "常用", actions: { togglePlayback: "播放 / 暂停", historyBack: "返回上一页",
-      search: "定位搜索框", sidebar: "右侧列表", home: "返回首页" } },
+      search: "定位搜索框", sidebar: "右侧列表", home: "返回首页", guide: "左侧导航" } },
     { id: "player", title: "播放器", actions: { mute: "静音 / 取消静音", captions: "字幕开关",
       fullscreen: "视频全屏", theater: "影院模式", playerSettings: "播放器设置" } },
     { id: "page", title: "页面", actions: { reload: "刷新当前页面", closeTab: "关闭当前标签页" } }
@@ -27,7 +27,7 @@
   const defaults = {
     enabled: true, showStatus: true, doubleInterval: 400,
     bindings: { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", confirm: "Enter",
-      back: "Escape", home: "Alt+Shift+KeyH", search: "Alt+Shift+KeyS", sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
+      back: "Escape", home: "Alt+Shift+KeyH", search: "Alt+Shift+KeyS", guide: "Alt+Shift+KeyG", sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
       togglePlayback: "Alt+Shift+KeyK", fullscreen: "Alt+Shift+KeyF", historyBack: "Alt+Shift+KeyB" },
     doubles: { search: "ArrowUp", sidebar: "ArrowDown", player: "", togglePlayback: "", fullscreen: "" },
     sequences: {
@@ -36,7 +36,8 @@
       historyBack: ["ArrowRight", "ArrowLeft"], togglePlayback: ["ArrowRight", "ArrowRight"],
       fullscreen: ["ArrowRight", "ArrowUp"], sidebar: ["ArrowRight", "ArrowDown"],
       mute: ["ArrowLeft", "ArrowDown", "ArrowLeft"], captions: ["ArrowLeft", "ArrowDown", "ArrowRight"],
-      theater: ["ArrowLeft", "ArrowDown", "ArrowUp"], playerSettings: ["ArrowLeft", "ArrowDown", "ArrowDown"]
+      theater: ["ArrowLeft", "ArrowDown", "ArrowUp"], playerSettings: ["ArrowLeft", "ArrowDown", "ArrowDown"],
+      guide: ["ArrowLeft", "ArrowRight", "ArrowUp"]
     }
   };
   const cloneDefaults = () => JSON.parse(JSON.stringify(defaults));
@@ -130,10 +131,11 @@
         settings.sequences[action] = conflict ? [] : [...keys];
       }
     }
-    if (!Object.hasOwn(settings.bindings, "home")) {
-      const home = defaults.bindings.home;
+    for (const action of ["home", "guide"]) {
+      if (Object.hasOwn(settings.bindings, action)) continue;
+      const shortcut = defaults.bindings[action];
       const used = [...Object.values(settings.bindings), ...Object.values(settings.doubles || {})];
-      settings.bindings.home = used.includes(home) ? "" : home;
+      settings.bindings[action] = used.includes(shortcut) ? "" : shortcut;
     }
     if (!Object.hasOwn(settings, "sequences")) {
       settings.sequences = cloneDefaults().sequences;

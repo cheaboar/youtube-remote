@@ -32,7 +32,7 @@ const os = require("node:os");
     await page.waitForFunction(() => document.querySelector('#youtube-remote-sequences')?.dataset.selected === 'historyBack');
     report.sequenceSelection = true;
     await page.keyboard.press('ArrowLeft');
-    await page.waitForFunction(() => document.querySelector('#youtube-remote-sequences')?.dataset.candidates === '8');
+    await page.waitForFunction(() => document.querySelector('#youtube-remote-sequences')?.dataset.candidates === '9');
     report.sequenceFiltering = true;
     await page.keyboard.press('Escape');
     await page.waitForSelector('#youtube-remote-sequences', { state: 'hidden' });

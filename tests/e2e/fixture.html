@@ -1,14 +1,34 @@
 <!doctype html><html><head><meta charset="utf-8"><style>
 body{margin:0;font:16px system-ui;background:#fafafa}header{position:sticky;top:0;height:60px;background:white;z-index:3;padding:8px;box-sizing:border-box}input{width:360px;padding:7px}#grid{display:grid;grid-template-columns:repeat(3,240px);gap:24px;padding:30px}ytd-rich-item-renderer{display:block;height:180px;border:1px solid #ccc}a{display:block;padding:15px;color:#234}#movie_player{width:600px;height:340px;background:#222;position:relative}video{width:100%;height:300px}#movie_player:fullscreen{width:100%;height:100%}#movie_player:fullscreen video{height:90%}ytd-watch-flexy{display:block;padding:20px}#watch-layout{display:flex;gap:30px}#related{width:320px}ytd-playlist-panel-renderer{display:block;max-height:330px;overflow:auto}ytd-playlist-panel-video-renderer,yt-lockup-view-model{display:block;height:100px;border:1px solid #bbb;margin:8px 0}#continuation{height:60px;margin-top:100px}#full{display:none}
-</style></head><body><header><form id="search-form" action="/results"><input name="search_query" type="text"><button>搜索</button></form></header><main id="app"></main><script>
+.has-guide #app{margin-left:170px}#guide-shell{position:fixed;top:75px;left:12px;width:148px;max-height:calc(100vh - 90px);overflow:auto;background:#f4f5f7}#guide-shell ytd-guide-renderer,#guide-shell ytd-mini-guide-renderer,#guide-shell ytd-guide-entry-renderer,#guide-shell ytd-mini-guide-entry-renderer{display:block}#guide-shell a{font-size:13px;height:48px;box-sizing:border-box}#guide-shell [hidden]{display:none!important}
+</style></head><body><header><form id="search-form" action="/results"><input name="search_query" type="text"><button>搜索</button></form><div id="guide-button" style="position:absolute;right:16px;top:8px"><button>导航</button></div></header><aside id="guide-shell"></aside><main id="app"></main><script>
 window.nativeEvents=[];
 window.addEventListener('keydown',e=>{if(!e.defaultPrevented)window.nativeEvents.push(e.key)},true);
 const app=document.querySelector('#app');
 let observer;
+let guideTimer;
+const guideShell=document.querySelector('#guide-shell');
+function renderGuide(mini=false,drawer=false){
+ const entries=[['home','/','首页'],['shorts','/shorts/fixture','Shorts'],['subscriptions','/feed/subscriptions','订阅'],['history','/feed/history','历史记录'],['playlists','/feed/playlists','播放列表'],['later','/playlist?list=WL','稍后观看'],['liked','/playlist?list=LL','喜欢的视频'],['trending','/feed/trending','热门'],['music','/channel/music','音乐']];
+ const tag=mini?'ytd-mini-guide-entry-renderer':'ytd-guide-entry-renderer';
+ const root=mini?'ytd-mini-guide-renderer':'ytd-guide-renderer';
+ guideShell.innerHTML=(drawer?'<tp-yt-app-drawer id="guide" role="dialog" aria-modal="true">':'')+'<'+root+'>'+entries.slice(0,mini?4:entries.length).map(([id,url,title])=>'<'+tag+' data-guide="'+id+'"><a id="endpoint" href="'+url+'">'+title+'</a></'+tag+'>').join('')+'</'+root+'>'+(drawer?'</tp-yt-app-drawer>':'');
+}
+document.querySelector('#guide-button button').onclick=()=>{
+ const params=new URLSearchParams(location.search);if(params.has('no-guide'))return;
+ const root=guideShell.firstElementChild;
+ if(root){root.hidden=!root.hidden;return}
+ clearTimeout(guideTimer);guideTimer=setTimeout(()=>renderGuide(false,true),params.has('guide-delay')?650:0);
+};
 function card(tag,id,extra=''){return `<${tag} data-video="${id}" ${extra}><a href="/watch?v=${id}">${id} 节目</a></${tag}>`}
 function audio(video){const rate=8000,n=rate*30,b=new ArrayBuffer(44+n*2),v=new DataView(b);const text=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};text(0,'RIFF');v.setUint32(4,b.byteLength-8,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,n*2,true);video.src=URL.createObjectURL(new Blob([b],{type:'audio/wav'}));video.load()}
 window.render=()=>{
- observer?.disconnect(); const p=new URLSearchParams(location.search); app.replaceChildren();
+ observer?.disconnect();clearTimeout(guideTimer); const p=new URLSearchParams(location.search); app.replaceChildren();guideShell.replaceChildren();
+ document.body.classList.toggle('has-guide',location.pathname!=='/watch'&&!p.has('no-guide'));
+ if(location.pathname!=='/watch'&&!p.has('no-guide')){
+  if(p.has('guide-delay'))guideTimer=setTimeout(()=>renderGuide(),650);
+  else {renderGuide(p.has('mini-guide'),p.has('collapsed-guide'));if(p.has('collapsed-guide'))guideShell.firstElementChild.hidden=true}
+ }
  if(location.pathname==='/watch'){
  app.innerHTML='<ytd-watch-flexy><div id="watch-layout"><div id="movie_player" tabindex="0"><video preload="auto"></video><button id="play-control">播放</button></div><div id="related"></div></div></ytd-watch-flexy>';
  audio(document.querySelector('video'));
