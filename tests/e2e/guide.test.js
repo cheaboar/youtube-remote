@@ -156,4 +156,63 @@ test("Shorts keeps native video arrows while the left guide supports remote sele
   await page.close();
 });
 
+test("the guide toggle sequence expands and collapses a collapsed drawer without leaving the list", async () => {
+  const page = await pageAt("/?collapsed-guide=1"); await selected(page, "v0");
+  const drawer = page.locator("tp-yt-app-drawer");
+  assert.equal(await drawer.isVisible(), false);
+  await mode(page);
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown"]) await press(page, key);
+  await drawer.waitFor({ state: "visible" });
+  await region(page, "list"); await selected(page, "v0");
+  assert.match(await page.locator("#youtube-remote-status [role='status']").textContent(), /已展开左侧导航/);
+  await mode(page);
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown"]) await press(page, key);
+  await drawer.waitFor({ state: "hidden" });
+  await region(page, "list"); await selected(page, "v0");
+  assert.match(await page.locator("#youtube-remote-status [role='status']").textContent(), /已收起左侧导航/);
+  await page.close();
+});
+
+test("the direct guide toggle chord keeps the current region and selected video", async () => {
+  const page = await pageAt(); await selected(page, "v0");
+  const fullGuide = page.locator("ytd-guide-renderer");
+  assert.equal(await fullGuide.isVisible(), true);
+  await press(page, "Alt+Shift+n"); await fullGuide.waitFor({ state: "hidden" });
+  assert.match(await page.locator("#youtube-remote-status [role='status']").textContent(), /已收起左侧导航/);
+  // A repeated remote key within the activation guard is ignored, as with other single-key commands.
+  await page.waitForTimeout(300);
+  await press(page, "Alt+Shift+n"); await fullGuide.waitFor({ state: "visible" });
+  assert.match(await page.locator("#youtube-remote-status [role='status']").textContent(), /已展开左侧导航/);
+  await region(page, "list"); await selected(page, "v0");
+  await press(page, "ArrowRight"); await selected(page, "v1");
+  await page.close();
+});
+
+test("closing the drawer from the guide region also returns to the previous area", async () => {
+  const page = await pageAt("/?collapsed-guide=1"); await selected(page, "v0");
+  await press(page, "Alt+Shift+g"); await region(page, "guide"); await guide(page, "home");
+  const drawer = page.locator("tp-yt-app-drawer");
+  await drawer.waitFor({ state: "visible" });
+  await mode(page);
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown"]) await press(page, key);
+  await drawer.waitFor({ state: "hidden" });
+  await region(page, "list"); await selected(page, "v0");
+  await press(page, "ArrowRight"); await selected(page, "v1");
+  await page.close();
+});
+
+test("a mini guide expands into the full guide and collapses back", async () => {
+  const page = await pageAt("/?mini-guide=1"); await selected(page, "v0");
+  assert.equal(await page.locator("ytd-mini-guide-renderer").isVisible(), true);
+  await mode(page);
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown"]) await press(page, key);
+  await page.locator("tp-yt-app-drawer ytd-guide-renderer").waitFor({ state: "visible" });
+  await region(page, "list"); await selected(page, "v0");
+  await mode(page);
+  for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown"]) await press(page, key);
+  await page.locator("ytd-mini-guide-renderer").waitFor({ state: "visible" });
+  assert.equal(await page.locator("tp-yt-app-drawer").count(), 0);
+  await page.close();
+});
+
 test("guide navigation produces no uncaught extension errors", () => assert.deepEqual(errors, []));

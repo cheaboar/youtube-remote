@@ -6,16 +6,20 @@
   "use strict";
   const ACTIONS = {
     up: "向上", down: "向下", left: "向左", right: "向右", confirm: "确认",
-    back: "逐层返回", home: "首页", search: "搜索", guide: "左侧导航", sidebar: "右侧列表", player: "播放器",
-    togglePlayback: "播放 / 暂停", fullscreen: "视频全屏", historyBack: "直接返回上一页"
+    back: "逐层返回", home: "首页", search: "搜索", guide: "左侧导航", toggleGuide: "展开 / 收起左侧导航",
+    sidebar: "右侧列表", player: "播放器",
+    togglePlayback: "播放 / 暂停", fullscreen: "视频全屏", restorePlayback: "恢复正常播放", historyBack: "直接返回上一页",
+    browser: "浏览器模式（双击，YouTube 内三击）"
   };
   const DOUBLE_ACTIONS = ["search", "sidebar", "player", "togglePlayback", "fullscreen"];
   const SEQUENCE_GROUPS = [
     { id: "common", title: "常用", actions: { togglePlayback: "播放 / 暂停", historyBack: "返回上一页",
-      search: "定位搜索框", sidebar: "右侧列表", home: "返回首页", guide: "左侧导航" } },
+      search: "定位搜索框", sidebar: "右侧列表", home: "返回首页", guide: "左侧导航",
+      toggleGuide: "展开 / 收起左侧导航" } },
     { id: "player", title: "播放器", actions: { mute: "静音 / 取消静音", captions: "字幕开关",
-      fullscreen: "视频全屏", theater: "影院模式", playerSettings: "播放器设置" } },
-    { id: "page", title: "页面", actions: { reload: "刷新当前页面", closeTab: "关闭当前标签页" } }
+      fullscreen: "视频全屏", theater: "影院模式", playerSettings: "播放器设置",
+      pipComments: "画中画看评论", restorePlayback: "恢复正常播放" } },
+    { id: "page", title: "页面", actions: { reload: "刷新当前页面", closeTab: "关闭当前标签页", scrollTop: "回到页面顶部" } }
   ];
   const SEQUENCE_ACTIONS = Object.assign({}, ...SEQUENCE_GROUPS.map(group => group.actions));
   const legacySequences = {
@@ -24,20 +28,35 @@
     historyBack: ["ArrowDown", "ArrowLeft"], togglePlayback: ["ArrowRight", "ArrowRight"],
     fullscreen: ["ArrowRight", "ArrowUp"], sidebar: ["ArrowRight", "ArrowDown"]
   };
+  // A preset is upgraded as a whole, so new commands can reuse the space behind its prefixes.
+  const previousSequences = {
+    closeTab: ["ArrowLeft", "ArrowRight", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight", "ArrowLeft"],
+    home: ["ArrowLeft", "ArrowUp"], search: ["ArrowLeft", "ArrowLeft"],
+    historyBack: ["ArrowRight", "ArrowLeft"], togglePlayback: ["ArrowRight", "ArrowRight"],
+    fullscreen: ["ArrowRight", "ArrowUp"], sidebar: ["ArrowRight", "ArrowDown"],
+    mute: ["ArrowLeft", "ArrowDown", "ArrowLeft"], captions: ["ArrowLeft", "ArrowDown", "ArrowRight"],
+    theater: ["ArrowLeft", "ArrowDown", "ArrowUp"], playerSettings: ["ArrowLeft", "ArrowDown", "ArrowDown"],
+    guide: ["ArrowLeft", "ArrowRight", "ArrowUp"], toggleGuide: ["ArrowLeft", "ArrowRight", "ArrowDown"]
+  };
   const defaults = {
     enabled: true, showStatus: true, doubleInterval: 400,
     bindings: { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", confirm: "Enter",
-      back: "Escape", home: "Alt+Shift+KeyH", search: "Alt+Shift+KeyS", guide: "Alt+Shift+KeyG", sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
-      togglePlayback: "Alt+Shift+KeyK", fullscreen: "Alt+Shift+KeyF", historyBack: "Alt+Shift+KeyB" },
+      back: "Escape", home: "Alt+Shift+KeyH", search: "Alt+Shift+KeyS", guide: "Alt+Shift+KeyG", toggleGuide: "Alt+Shift+KeyN",
+      sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
+      togglePlayback: "Alt+Shift+KeyK", fullscreen: "Alt+Shift+KeyF", restorePlayback: "Alt+Shift+KeyR", historyBack: "Alt+Shift+KeyB",
+      browser: "Enter" },
     doubles: { search: "ArrowUp", sidebar: "ArrowDown", player: "", togglePlayback: "", fullscreen: "" },
     sequences: {
-      closeTab: ["ArrowLeft", "ArrowRight", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight", "ArrowLeft"],
+      closeTab: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight", "ArrowLeft"],
       home: ["ArrowLeft", "ArrowUp"], search: ["ArrowLeft", "ArrowLeft"],
       historyBack: ["ArrowRight", "ArrowLeft"], togglePlayback: ["ArrowRight", "ArrowRight"],
       fullscreen: ["ArrowRight", "ArrowUp"], sidebar: ["ArrowRight", "ArrowDown"],
       mute: ["ArrowLeft", "ArrowDown", "ArrowLeft"], captions: ["ArrowLeft", "ArrowDown", "ArrowRight"],
       theater: ["ArrowLeft", "ArrowDown", "ArrowUp"], playerSettings: ["ArrowLeft", "ArrowDown", "ArrowDown"],
-      guide: ["ArrowLeft", "ArrowRight", "ArrowUp"]
+      guide: ["ArrowLeft", "ArrowRight", "ArrowUp"], toggleGuide: ["ArrowLeft", "ArrowRight", "ArrowDown"],
+      pipComments: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowLeft"],
+      restorePlayback: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowUp"],
+      scrollTop: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowDown"]
     }
   };
   const cloneDefaults = () => JSON.parse(JSON.stringify(defaults));
@@ -74,7 +93,14 @@
       const value = settings.bindings?.[action];
       if (typeof value !== "string" || (value && !validChord(value))) return `请重新录制「${ACTIONS[action]}」`;
       if (!value) continue;
-      if (used.has(value)) return `「${ACTIONS[action]}」与「${ACTIONS[used.get(value)]}」使用了同一个按键`;
+      if (used.has(value)) {
+        // The browser entry deliberately shares the confirm key: a double tap enters the mode on
+        // ordinary pages, and a third tap is needed on YouTube, where the confirm key already
+        // opens the command panel.
+        const other = used.get(value);
+        if (!(action === "browser" && other === "confirm")) return `「${ACTIONS[action]}」与「${ACTIONS[other]}」使用了同一个按键`;
+        continue;
+      }
       if (reservedChord(value)) return `${label(value)} 是浏览器或系统保留快捷键`;
       used.set(value, action);
     }
@@ -110,13 +136,13 @@
     const settings = { ...value, bindings: normalizeGroup(value.bindings), doubles: normalizeGroup(value.doubles) };
     if (Object.hasOwn(value, "sequences")) {
       settings.sequences = normalizeGroup(value.sequences);
-      // Upgrade the old preset as a whole so that custom sequences never acquire prefix conflicts.
-      const oldPreset = Object.keys(legacySequences).every(action => {
+      // Upgrade an untouched preset as a whole so that custom sequences never acquire prefix conflicts.
+      const presetMatches = preset => Object.keys(preset).every(action => {
         const keys = settings.sequences[action];
-        return Array.isArray(keys) && (!keys.length || JSON.stringify(keys) === JSON.stringify(legacySequences[action]));
-      }) && Object.entries(settings.sequences).every(([action, keys]) => Object.hasOwn(legacySequences, action) ||
+        return Array.isArray(keys) && (!keys.length || JSON.stringify(keys) === JSON.stringify(preset[action]));
+      }) && Object.entries(settings.sequences).every(([action, keys]) => Object.hasOwn(preset, action) ||
         Array.isArray(keys) && (!keys.length || JSON.stringify(keys) === JSON.stringify(defaults.sequences[action])));
-      if (oldPreset) {
+      if (presetMatches(legacySequences) || presetMatches(previousSequences)) {
         for (const action of Object.keys(SEQUENCE_ACTIONS)) {
           if (!Object.hasOwn(settings.sequences, action) || settings.sequences[action].length) settings.sequences[action] = [...defaults.sequences[action]];
           if (settings.sequences[action].includes(settings.bindings.back)) settings.sequences[action] = [];
@@ -131,11 +157,14 @@
         settings.sequences[action] = conflict ? [] : [...keys];
       }
     }
-    for (const action of ["home", "guide"]) {
+    for (const action of ["home", "guide", "toggleGuide", "restorePlayback", "browser"]) {
       if (Object.hasOwn(settings.bindings, action)) continue;
       const shortcut = defaults.bindings[action];
       const used = [...Object.values(settings.bindings), ...Object.values(settings.doubles || {})];
-      settings.bindings[action] = used.includes(shortcut) ? "" : shortcut;
+      // The browser entry is allowed to share the confirm key; everything else stays unbound when
+      // its default is already taken.
+      const shared = action === "browser" && shortcut === settings.bindings.confirm;
+      settings.bindings[action] = used.includes(shortcut) && !shared ? "" : shortcut;
     }
     if (!Object.hasOwn(settings, "sequences")) {
       settings.sequences = cloneDefaults().sequences;
@@ -168,6 +197,23 @@
       }
     };
   }
+  // A press-and-release tap count. Unlike createMatcher() this is not region bound: it drives
+  // global mode entry, ignores held keys and restarts when taps fall outside the interval.
+  function createTapCounter() {
+    let pending = null;
+    return {
+      reset() { pending = null; },
+      press(event, interval) {
+        if (event.repeat) return 0;
+        const time = Number(event.timeStamp) || 0;
+        pending = pending !== null && time >= pending.time && time - pending.time <= interval
+          ? { count: pending.count + 1, time } : { count: 1, time };
+        return pending.count;
+      },
+      get count() { return pending ? pending.count : 0; },
+      get waiting() { return pending !== null; }
+    };
+  }
   return { ACTIONS, DOUBLE_ACTIONS, SEQUENCE_ACTIONS, SEQUENCE_GROUPS, cloneDefaults, chord, label, validate, normalize,
-    resolve, createMatcher, sequenceCandidates };
+    resolve, createMatcher, sequenceCandidates, createTapCounter };
 });

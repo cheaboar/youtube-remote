@@ -18,6 +18,12 @@
     <div class="toolbar"><button id="save" class="primary">保存设置</button><button id="reset">恢复默认</button><button id="finish-sequence" hidden>完成序列</button><button id="undo-sequence" hidden>撤销一步</button><button id="cancel-recording" hidden>取消录制</button></div>
     <p id="feedback" role="status" aria-live="polite"></p>
   </section>
+  <section aria-labelledby="global-title"><div class="section-heading"><h2 id="global-title">浏览器全局模式</h2><span id="site-state">正在检查授权…</span></div>
+    <p class="hint">双击「浏览器模式」键（默认 Enter）进入；YouTube 页内需三击，因为双击 Enter 已用于复合键面板。模式内 ↑↓ 切换标签页，Enter 刷新，←→ 后退／前进，Esc 退出；再次双击入口键可按标题选择标签页。</p>
+    <p class="hint">要在 YouTube 以外的网页继续遥控，需要授权扩展访问网站。授权只用于注入遥控脚本，不读取本地文件；地址栏、浏览器内部页和应用商店无法接收按键，此时请使用工具栏弹窗退出模式。</p>
+    <div class="toolbar"><button id="site-grant" class="primary">允许在所有网站使用</button><button id="site-revoke">撤销授权</button><button id="browser-exit" hidden>退出浏览器模式</button></div>
+    <p id="global-feedback" role="status" aria-live="polite" class="hint"></p>
+  </section>
   <section aria-labelledby="diagnostic-title"><div class="section-heading"><h2 id="diagnostic-title">遥控器诊断</h2><button id="diagnostics">开始诊断 5 分钟</button></div>
     <p class="hint">启用后切换到 YouTube，按遥控器，再回这里查看网页收到的按键。若没有记录，请在遥控器端换一个映射。文字输入只显示输入状态，不记录语音文字。</p>
     <div class="table-wrap"><table><thead><tr><th>时间 / 标签页</th><th>操作区域</th><th>按键 / code</th><th>状态 / 操作</th></tr></thead><tbody id="events"></tbody></table></div>

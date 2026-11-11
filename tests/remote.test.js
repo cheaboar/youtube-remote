@@ -58,6 +58,65 @@ test("adding home preserves existing remote settings and occupied shortcuts", ()
   assert.equal(R.normalize(legacy).bindings.home, "");
   assert.equal(R.normalize(legacy).doubles.search, "Alt+Shift+KeyH");
 });
+test("the browser entry shares the confirm key and migrates without resetting settings", () => {
+  const defaults = R.cloneDefaults();
+  assert.equal(defaults.bindings.browser, "Enter");
+  assert.equal(defaults.bindings.confirm, "Enter");
+  assert.equal(R.validate(defaults), "");
+  // Content scripts keep resolving Enter to the confirm action; browser.js owns the gesture.
+  assert.equal(R.resolve(defaults, "Enter"), "confirm");
+
+  const legacy = R.cloneDefaults();
+  delete legacy.bindings.browser;
+  legacy.bindings.search = "F8";
+  legacy.enabled = false;
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.bindings.browser, "Enter");
+  assert.equal(migrated.bindings.search, "F8");
+  assert.equal(migrated.enabled, false);
+  assert.equal(legacy.bindings.browser, undefined);
+  // An occupied Enter keeps the old mapping and leaves the new entry unbound.
+  legacy.bindings.confirm = "F13";
+  legacy.bindings.search = "Enter";
+  assert.equal(R.normalize(legacy).bindings.browser, "");
+  assert.equal(R.normalize(legacy).bindings.search, "Enter");
+  legacy.bindings.search = "F8";
+  legacy.doubles.search = "Enter";
+  assert.equal(R.normalize(legacy).bindings.browser, "");
+  assert.equal(R.normalize(legacy).doubles.search, "Enter");
+  // Explicitly cleared or customised entries survive and migration stays idempotent.
+  legacy.doubles.search = "";
+  legacy.bindings.browser = "";
+  assert.equal(R.normalize(legacy).bindings.browser, "");
+  legacy.bindings.browser = "F9";
+  const custom = R.normalize(legacy);
+  assert.equal(custom.bindings.browser, "F9");
+  assert.deepEqual(R.normalize(custom), custom);
+  // Sharing the confirm key is allowed; sharing any other binding is not.
+  legacy.bindings.browser = "Enter";
+  legacy.bindings.confirm = "Enter";
+  assert.equal(R.validate(legacy), "");
+  legacy.bindings.search = "Enter";
+  assert.match(R.validate(legacy), /同一个按键/);
+  legacy.bindings.search = "F8";
+  legacy.bindings.back = "Enter";
+  assert.match(R.validate(legacy), /同一个按键/);
+});
+test("tap counting ignores held keys, restarts after the interval and reaches three taps", () => {
+  const tap = R.createTapCounter();
+  assert.equal(tap.press(event("Enter", 0), 400), 1);
+  assert.equal(tap.count, 1);
+  assert.equal(tap.press(event("Enter", 120, { repeat: true }), 400), 0);
+  assert.equal(tap.count, 1);
+  assert.equal(tap.press(event("Enter", 300), 400), 2);
+  assert.equal(tap.press(event("Enter", 500), 400), 3);
+  tap.reset();
+  assert.equal(tap.count, 0);
+  assert.equal(tap.press(event("Enter", 800), 400), 1);
+  assert.equal(tap.press(event("Enter", 1200), 400), 2);
+  assert.equal(tap.press(event("Enter", 1700), 400), 1);
+  assert.equal(tap.press(event("Enter", 1701, { repeat: true }), 400), 0);
+});
 test("double taps only run in player region and repeated keydowns cannot confirm", () => {
   const matcher = R.createMatcher(), settings = R.cloneDefaults();
   assert.equal(matcher.match(event("ArrowDown", 0), settings, "player"), "down");
@@ -77,12 +136,13 @@ test("other keys and reset break a double tap sequence", () => {
 
 test("sequence candidates filter by ordered prefix and only complete at an exact match", () => {
   const { sequences } = R.cloneDefaults();
-  assert.equal(R.sequenceCandidates(sequences, []).candidates.length, 13);
+  assert.equal(R.sequenceCandidates(sequences, []).candidates.length, 17);
   assert.ok(Object.values(sequences).every(keys => ["ArrowLeft", "ArrowRight"].includes(keys[0])));
   const partial = R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowDown"]);
   assert.deepEqual(partial.candidates.map(item => item.action), ["mute", "captions", "theater", "playerSettings"]);
   assert.equal(partial.action, null);
-  assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowRight", "ArrowRight"]).action, "closeTab");
+  assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"]).action, "closeTab");
+  assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowRight", "ArrowDown"]).action, "toggleGuide");
   assert.equal(R.sequenceCandidates(sequences, ["ArrowRight", "ArrowDown"]).action, "sidebar");
   assert.equal(R.sequenceCandidates(sequences, ["ArrowLeft", "ArrowDown", "ArrowUp"]).action, "theater");
   assert.equal(R.sequenceCandidates(sequences, ["KeyZ"]).candidates.length, 0);
@@ -92,7 +152,7 @@ test("sequence validation rejects ambiguous prefixes, reserved keys and invalid 
   const settings = R.cloneDefaults();
   settings.sequences.home = [...settings.sequences.closeTab];
   assert.match(R.validate(settings), /重复或前缀/);
-  settings.sequences.home.push("Enter");
+  settings.sequences.home = ["ArrowLeft", "ArrowRight", "ArrowRight"];
   assert.match(R.validate(settings), /重复或前缀/);
   settings.sequences.home = ["Escape", "ArrowUp"];
   assert.match(R.validate(settings), /返回键/);
@@ -139,7 +199,7 @@ test("old sequence presets upgrade to horizontal starts without resetting remote
   assert.equal(migrated.doubleInterval, 650);
   assert.equal(migrated.bindings.confirm, "F8");
   assert.deepEqual(migrated.sequences.search, []);
-  assert.deepEqual(migrated.sequences.closeTab, ["ArrowLeft", "ArrowRight", "ArrowRight"]);
+  assert.deepEqual(migrated.sequences.closeTab, ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"]);
   assert.deepEqual(migrated.sequences.mute, ["ArrowLeft", "ArrowDown", "ArrowLeft"]);
   assert.equal(R.validate(migrated), "");
   assert.deepEqual(R.normalize(migrated), migrated);
@@ -163,6 +223,8 @@ test("adding player commands preserves custom sequences and disables conflicting
 test("adding guide controls preserves legacy mappings, including an occupied guide shortcut", () => {
   const legacy = R.cloneDefaults();
   delete legacy.bindings.guide; delete legacy.sequences.guide;
+  delete legacy.bindings.toggleGuide; delete legacy.sequences.toggleGuide;
+  for (const action of ["pipComments", "restorePlayback", "scrollTop"]) delete legacy.sequences[action];
   legacy.bindings.confirm = "F8";
   legacy.bindings.search = "Alt+Shift+KeyG";
   legacy.sequences.reload = ["ArrowLeft", "ArrowRight"];
@@ -176,4 +238,23 @@ test("adding guide controls preserves legacy mappings, including an occupied gui
   assert.equal(R.validate(migrated), "");
   legacy.bindings.search = "F7";
   assert.equal(R.normalize(legacy).bindings.guide, "Alt+Shift+KeyG");
+});
+
+test("adding the guide toggle keeps legacy settings and disables conflicting presets", () => {
+  const legacy = R.cloneDefaults();
+  delete legacy.bindings.toggleGuide; delete legacy.sequences.toggleGuide;
+  legacy.bindings.confirm = "F8";
+  legacy.bindings.search = "Alt+Shift+KeyN";
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.bindings.toggleGuide, "");
+  assert.equal(migrated.bindings.confirm, "F8");
+  assert.deepEqual(migrated.sequences.toggleGuide, ["ArrowLeft", "ArrowRight", "ArrowDown"]);
+  assert.equal(R.validate(migrated), "");
+  legacy.bindings.search = "F7";
+  assert.equal(R.normalize(legacy).bindings.toggleGuide, "Alt+Shift+KeyN");
+  legacy.sequences.home = ["ArrowLeft", "ArrowRight", "ArrowDown"];
+  const conflicting = R.normalize(legacy);
+  assert.deepEqual(conflicting.sequences.toggleGuide, []);
+  assert.equal(R.validate(conflicting), "");
+  assert.equal(R.sequenceCandidates(conflicting.sequences, ["ArrowLeft", "ArrowRight", "ArrowDown"]).action, "home");
 });

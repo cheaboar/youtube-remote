@@ -74,6 +74,17 @@
   function guideButton() {
     return [...document.querySelectorAll("#guide-button button,button#guide-button")].find(visible);
   }
+  function guideExpanded() {
+    // A drawer owns the guide on narrow layouts. Its opened attribute is authoritative even
+    // while the off-screen drawer still has a non-zero box in some YouTube layouts.
+    const drawers = [...document.querySelectorAll("tp-yt-app-drawer")].filter(drawer =>
+      visible(drawer) && drawer.querySelector("ytd-guide-renderer"));
+    if (drawers.length) return drawers.some(drawer => drawer.hasAttribute("opened") ||
+      drawer.hasAttribute("persistent") || drawer.getAttribute("aria-expanded") === "true");
+    // On wide layouts the full guide is docked; the mini guide is the collapsed state.
+    return [...document.querySelectorAll("ytd-guide-renderer")].some(root =>
+      visible(root) && root.querySelector("ytd-guide-entry-renderer"));
+  }
   function sidebar() {
     const playlist = candidates("playlist");
     if (playlist.length) return { area: "playlist", items: playlist,
@@ -91,8 +102,21 @@
   function searchInput() {
     return [...document.querySelectorAll('input[name="search_query"],input#search,yt-searchbox input[type="text"]')].find(visible);
   }
+  const editors = "input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox']";
   function editing(target) {
-    return target instanceof Element && !!target.closest("input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox'],[role='combobox']");
+    return target instanceof Element && !!target.closest(`${editors},[role='combobox']`);
+  }
+  // Chrome makes scroll containers keyboard-focusable: clicking/dragging a scrollbar focuses the scroller.
+  // That scroller is not a text editor, even when a wrapper carries an editor-like role (search suggestions,
+  // comment panels). Keeping its focus must not disable the remote or let the browser eat arrow keys.
+  function scrollFocus(target) {
+    if (!(target instanceof Element) || target.matches(editors)) return false;
+    if (target.closest("#youtube-remote-status,#youtube-remote-sequences,#youtube-remote-browser")) return false;
+    if (target === document.scrollingElement) return target.scrollHeight > innerHeight;
+    const style = getComputedStyle(target);
+    const overflows = (axis, size, view) => /^(auto|scroll|overlay)$/.test(axis) && size > view + 1;
+    return overflows(style.overflowY, target.scrollHeight, target.clientHeight) ||
+      overflows(style.overflowX, target.scrollWidth, target.clientWidth);
   }
   function video() { return [...document.querySelectorAll("#movie_player video,video.html5-main-video,video")].find(visible); }
   function player() { return [...document.querySelectorAll("#movie_player")].find(visible) || video(); }
@@ -110,6 +134,18 @@
   function playerMenuItem() {
     const menu = [...(player()?.querySelectorAll(".ytp-settings-menu,[role='menu']") || [])].find(visible);
     return menu && [...menu.querySelectorAll("[role='menuitem'],[role='menuitemcheckbox'],[role='menuitemradio']")].find(visible);
+  }
+  function comments() {
+    // Prefer the full comment section over the teaser/input box near the player.
+    // The section shell renders early; its box stays empty until the page scrolls near it.
+    const root = watchRoot();
+    return [...root.querySelectorAll("ytd-comments#comments,ytd-comments,#comments")].find(visible) ||
+      [...root.querySelectorAll("#comment-teaser,ytd-item-section-renderer#comment-item-section")].find(visible) || null;
+  }
+  function pipButton() {
+    const root = player();
+    if (!root) return null;
+    return [...root.querySelectorAll(".ytp-pip-button,[aria-label*='画中画'],[title*='画中画']")].find(visible) || null;
   }
   function overlay() {
     return [...document.querySelectorAll("dialog[open],[role='dialog'],[aria-modal='true'],tp-yt-paper-dialog,tp-yt-iron-dropdown,[role='menu']")]
@@ -135,6 +171,6 @@
     if (button) { button.click(); return true; }
     return false;
   }
-  globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, guideItems, guideButton, sidebar, expandPlaylist,
-    searchInput, editing, video, player, playerControl, playerMenuItem, overlay, scrollParent, scrollForMore, submitSearch };
+  globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, guideItems, guideButton, guideExpanded, sidebar, expandPlaylist,
+    searchInput, editing, scrollFocus, video, player, playerControl, playerMenuItem, pipButton, comments, overlay, scrollParent, scrollForMore, submitSearch };
 })();

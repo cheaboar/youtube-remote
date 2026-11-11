@@ -2,18 +2,38 @@
   "manifest_version": 3,
   "name": "YouTube 键盘选片",
   "version": "2.0.0",
-  "description": "使用方向键选择 YouTube 节目并按 Enter 播放。",
-  "permissions": ["storage"],
+  "description": "使用方向键选择 YouTube 节目并按 Enter 播放，双击 Home 可切换浏览器全局遥控。",
+  "minimum_chrome_version": "119",
+  "permissions": ["storage", "tabs", "scripting"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
   "action": {
     "default_title": "YouTube 键盘选片：快捷键说明",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
-      "js": ["navigation.js", "remote.js", "youtube.js", "content.js"],
+      "js": ["remote.js", "browser.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["remote.js", "navigation.js", "youtube.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_start"
     }

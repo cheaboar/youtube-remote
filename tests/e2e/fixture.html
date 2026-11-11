@@ -17,8 +17,18 @@ function renderGuide(mini=false,drawer=false){
 document.querySelector('#guide-button button').onclick=()=>{
  const params=new URLSearchParams(location.search);if(params.has('no-guide'))return;
  const root=guideShell.firstElementChild;
- if(root){root.hidden=!root.hidden;return}
- clearTimeout(guideTimer);guideTimer=setTimeout(()=>renderGuide(false,true),params.has('guide-delay')?650:0);
+ // A mini guide expands into the full drawer; collapsing it restores the mini guide.
+ if(root&&root.matches('ytd-mini-guide-renderer')&&!root.hidden){renderGuide(false,true);guideShell.firstElementChild.setAttribute('opened','');return}
+ if(root&&root.matches('tp-yt-app-drawer')&&params.has('mini-guide')){renderGuide(true,false);return}
+ if(root){
+  const opening=root.hidden;
+  root.hidden=!root.hidden;
+  if(root.matches('tp-yt-app-drawer'))root.toggleAttribute('opened',opening);
+  return
+ }
+ clearTimeout(guideTimer);guideTimer=setTimeout(()=>{
+  renderGuide(false,true);const drawer=guideShell.firstElementChild;if(drawer)drawer.setAttribute('opened','')
+ },params.has('guide-delay')?650:0);
 };
 function card(tag,id,extra=''){return `<${tag} data-video="${id}" ${extra}><a href="/watch?v=${id}">${id} 节目</a></${tag}>`}
 function audio(video){const rate=8000,n=rate*30,b=new ArrayBuffer(44+n*2),v=new DataView(b);const text=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};text(0,'RIFF');v.setUint32(4,b.byteLength-8,true);text(8,'WAVE');text(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,n*2,true);video.src=URL.createObjectURL(new Blob([b],{type:'audio/wav'}));video.load()}

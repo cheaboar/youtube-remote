@@ -132,6 +132,48 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.diagnosticsUntil) diagnosticsUntil = Number(changes.diagnosticsUntil.newValue) || 0;
   if (area === "session" || changes.diagnosticsUntil) void renderEvents();
 });
+const SITE_ORIGINS = ["http://*/*", "https://*/*"];
+async function browserModeState() {
+  try { return (await chrome.runtime.sendMessage({ type: "remote:browser-state" }))?.state || null; }
+  catch (_) { return null; }
+}
+async function renderGlobal() {
+  let granted = false;
+  try { granted = await chrome.permissions.contains({ origins: SITE_ORIGINS }); }
+  catch (_) { granted = false; }
+  $("site-grant").disabled = granted;
+  $("site-revoke").disabled = !granted;
+  $("site-state").textContent = granted ? "已授权网站访问" : "仅在 YouTube 内可用";
+  $("browser-exit").hidden = !(await browserModeState())?.active;
+}
+$("site-grant").addEventListener("click", () => {
+  // The permission prompt must be requested from inside the click gesture.
+  chrome.permissions.request({ origins: SITE_ORIGINS }).then(async (granted) => {
+    if (granted) await chrome.runtime.sendMessage({ type: "remote:browser-permission-sync" }).catch(() => null);
+    $("global-feedback").textContent = granted ? "已授权：普通网页中也可以双击入口键进入浏览器模式。" :
+      "未授权：浏览器模式仍可在 YouTube 内使用。";
+    await renderGlobal();
+  }).catch(() => { $("global-feedback").textContent = "授权没有完成，请重试。"; });
+});
+$("site-revoke").addEventListener("click", async () => {
+  try { await chrome.permissions.remove({ origins: SITE_ORIGINS }); }
+  catch (_) { /* Already removed. */ }
+  $("global-feedback").textContent = "已撤销：浏览器模式只在 YouTube 内可用。";
+  await renderGlobal();
+});
+$("browser-exit").addEventListener("click", async () => {
+  try { await chrome.runtime.sendMessage({ type: "remote:browser-exit" }); }
+  catch (_) { /* No active worker. */ }
+  await renderGlobal();
+});
+chrome.permissions.onAdded.addListener(() => void renderGlobal());
+chrome.permissions.onRemoved.addListener(() => void renderGlobal());
+// Trusted extension pages receive session-storage events, so the exit button tracks the live mode.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "session" && changes["remote:browser-mode"]) void renderGlobal();
+});
+void renderGlobal();
+
 void chrome.storage.local.get(["remoteSettings", "diagnosticsUntil"]).then((saved) => {
   draft = R.normalize(saved.remoteSettings); diagnosticsUntil = saved.diagnosticsUntil || 0; render(); void renderEvents();
 });

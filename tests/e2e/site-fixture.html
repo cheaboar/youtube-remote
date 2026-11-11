@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>远程遥控测试页</title>
+  <style>
+    body { font: 16px/1.7 system-ui, sans-serif; margin: 40px; color: #26282d; }
+    h1 { margin: 0 0 12px; font-size: 24px; }
+    a { display: block; margin: 8px 0; color: #0059bd; }
+    input, textarea { display: block; width: 320px; margin: 14px 0; padding: 8px; font: inherit; }
+  </style>
+</head>
+<body>
+  <h1 id="heading">远程遥控测试页</h1>
+  <p>用于验证浏览器全局模式的普通网页。</p>
+  <nav><a href="/one">页面一</a><a href="/two">页面二</a></nav>
+  <input id="text" placeholder="输入框保留原生按键">
+  <textarea id="notes" rows="3"></textarea>
+<script>
+  window.nativeEvents = [];
+  addEventListener("keydown", event => {
+    if (!event.defaultPrevented) window.nativeEvents.push(event.key);
+  }, true);
+  const titles = { "/": "远程遥控测试页", "/one": "页面一", "/two": "页面二" };
+  function render() {
+    document.querySelector("#heading").textContent = titles[location.pathname] || document.title;
+    document.title = titles[location.pathname] || "远程遥控测试页";
+  }
+  document.addEventListener("click", event => {
+    const link = event.target.closest("a");
+    if (!link) return;
+    event.preventDefault();
+    history.pushState({}, "", link.getAttribute("href"));
+    render();
+  });
+  addEventListener("popstate", render);
+  render();
+</script>
+</body>
+</html>
