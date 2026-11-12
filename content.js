@@ -862,7 +862,10 @@
     if (action !== "confirm" || event.defaultPrevented) cancelConfirmation();
     if (!settings.enabled || !action) return;
     // The global browser mode is entered by browser.js; this is only a fallback if it is absent.
-    if (action === "browser") return;
+    // Page controls belong to browser.js too: outside the mode, keep Tab, Backspace and the
+    // locate-input chord native instead of swallowing them here.
+    if (action === "browser" || action === "focusMode" || action === "focusInput" ||
+      action === "browserClose") return;
     if (event.defaultPrevented) return;
     // A focused scrollbar/scroller is Chrome's focusable scroller, not a text editor.
     const editing = D.editing(event.target) && !D.scrollFocus(event.target);

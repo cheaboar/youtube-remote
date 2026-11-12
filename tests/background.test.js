@@ -22,7 +22,10 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
     runtime: { id: "extension",
       onMessage: on("message"), onInstalled: on("installed"), onStartup: on("startup"),
       getURL: path => `chrome-extension://extension/${path}` },
-    storage: { session: {
+    storage: { local: {
+      get: async key => store.has(key) ? { [key]: clone(store.get(key)) } : {},
+      set: async values => { for (const [name, value] of Object.entries(values)) store.set(name, clone(value)); }
+    }, session: {
       get: async key => {
         const result = {};
         if (key === null || key === undefined) for (const [name, value] of store) result[name] = clone(value);
@@ -43,6 +46,12 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
           calls.push(["activate", id]);
         }
         return clone(tab);
+      },
+      create: async props => {
+        const id = Math.max(0, ...tabs.map(tab => tab.id)) + 1;
+        if (props.active !== false) for (const tab of tabs) if (tab.windowId === props.windowId) tab.active = false;
+        const tab = { id, index: tabs.length, windowId: props.windowId, url: props.url, title: props.url, active: props.active !== false };
+        tabs.push(tab); calls.push(["create", id, props.url]); return clone(tab);
       },
       reload: async id => { calls.push(["reload", id]); },
       remove: async id => {
@@ -79,7 +88,8 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
       executeScript: async ({ target }) => { calls.push(["inject", target.tabId]); }
     }
   };
-  vm.runInNewContext(source, { chrome, setTimeout, clearTimeout });
+  const context = { chrome, setTimeout, clearTimeout, URL, YouTubeRemote: require("../remote.js"), importScripts() {} };
+  vm.runInNewContext(source, context);
   const message = listeners.message[0];
   return {
     calls, store, registered, tabs: () => tabs,
@@ -87,6 +97,10 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
     setHistory: (id, value) => { history[id] = value; },
     removeTab: id => { tabs = tabs.filter(tab => tab.id !== id); },
     activateTab: id => chrome.tabs.update(id, { active: true }),
+    setTab: (id, props) => {
+      const tab = tabs.find(item => item.id === id);
+      if (tab) Object.assign(tab, props);
+    },
     tick: () => new Promise(resolve => setTimeout(resolve, 30)),
     send: (payload, sender) => new Promise(resolve => {
       const keep = message(payload, sender, resolve);
@@ -224,25 +238,50 @@ test("duplicate and replayed commands are ignored", async () => {
   assert.equal(stale.error.code, "STALE_SESSION");
 });
 
-test("title selection only moves the highlight and activation validates the tab", async () => {
+test("a host tab that lands on a blank page hands the mode to a controllable tab", async () => {
   const worker = createWorker();
-  const entered = await worker.send({ type: "remote:browser-enter" }, youtube());
-  const sessionId = entered.state.sessionId;
-  const opened = await worker.send({ type: "remote:browser-input", sessionId, input: "openTitles", requestId: "t1" }, youtube());
-  assert.equal(opened.state.phase, "titles");
-  assert.equal(opened.state.selectedTabId, 1);
-  const moved = await worker.send({ type: "remote:browser-input", sessionId, input: "selectionNext", requestId: "t2" }, youtube());
-  assert.equal(moved.state.selectedTabId, 2);
-  assert.equal(moved.state.activeTabId, 1);
+  await worker.send({ type: "remote:browser-enter" }, youtube());
+  assert.equal(worker.store.get("remote:browser-mode").hostTabId, 1);
+
+  // History back from a page opened in a fresh tab lands on about:blank, where no controller runs.
+  worker.setTab(1, { url: "about:blank", title: "" });
+  await worker.emit("tabs.onUpdated", 1, { status: "complete" });
+  await worker.tick();
+  await worker.tick();
+  const mode = worker.store.get("remote:browser-mode");
+  assert.equal(mode.active, true);
+  assert.equal(mode.phase, "direct");
+  assert.equal(mode.hostTabId, 2);
+  assert.equal(mode.notifyTabId, 2);
+  assert.equal(mode.selectedTabId, 2);
+  assert.deepEqual(worker.calls.filter(call => call[0] === "activate"), [["activate", 2]]);
+  assert.ok(worker.messagesTo(2).some(call => call[2]?.type === "remote:browser-state-changed"));
+});
+
+test("a browser page opened in another tab does not pull the mode away from its host", async () => {
+  const worker = createWorker();
+  await worker.send({ type: "remote:browser-enter" }, youtube());
+  // The user switches tabs by hand: the active tab is no longer the tab that hosts the controller.
+  await worker.activateTab(2);
+  const activations = worker.calls.filter(call => call[0] === "activate").length;
+  worker.setTab(2, { url: "chrome://settings/" });
+  await worker.emit("tabs.onUpdated", 2, { status: "complete" });
+  await worker.tick();
+  assert.equal(worker.calls.filter(call => call[0] === "activate").length, activations);
+  assert.equal(worker.store.get("remote:browser-mode").hostTabId, 1);
+});
+
+test("a stranded mode waits for a web page when no other tab can run the controller", async () => {
+  const worker = createWorker({ tabs: [
+    { id: 1, index: 0, active: true, windowId: 7, title: "YouTube", url: "https://www.youtube.com/" }
+  ] });
+  await worker.send({ type: "remote:browser-enter" }, youtube());
+  worker.setTab(1, { url: "chrome://newtab/" });
+  await worker.emit("tabs.onUpdated", 1, { status: "complete" });
+  await worker.tick();
+  const mode = worker.store.get("remote:browser-mode");
+  assert.equal(mode.active, true);
   assert.equal(worker.calls.filter(call => call[0] === "activate").length, 0);
-  const activated = await worker.send({ type: "remote:browser-input", sessionId, input: "activateSelected", expectedTabId: 2, requestId: "t3" }, youtube());
-  assert.equal(activated.state.phase, "direct");
-  assert.equal(activated.state.activeTabId, 2);
-  const back = await worker.send({ type: "remote:browser-input", sessionId, input: "openTitles", requestId: "t4" }, site());
-  assert.equal(back.state.phase, "titles");
-  const closed = await worker.send({ type: "remote:browser-input", sessionId, input: "escape", requestId: "t5" }, site());
-  assert.equal(closed.state.phase, "direct");
-  assert.equal(closed.state.active, true);
 });
 
 test("browser commands require authorization and stay inside the owning window", async () => {
@@ -306,4 +345,104 @@ test("optional site access registers the all-sites controller and revoking it ex
   // A leftover controller cannot issue commands after the grant is revoked.
   const rejected = await worker.send({ type: "remote:browser-input", sessionId: entered.state.sessionId, input: "reload" }, site());
   assert.equal(rejected.error.code, "NOT_AUTHORIZED");
+});
+
+test("grouped menus reject stale selections and return page actions once", async () => {
+  const worker = createWorker();
+  const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
+  const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
+  let result = await input("openTitles", "m1");
+  assert.equal(result.state.menuGroup, "common");
+  assert.equal(result.state.selectedItemId, "previousRecent");
+  result = await input("selectionNext", "m2");
+  assert.equal(result.state.selectedItemId, "scroll");
+  assert.equal((await input("activateSelected", "m3", { expectedItemId: "focus" })).error.code, "STALE_SELECTION");
+  result = await input("activateSelected", "m4", { expectedItemId: "scroll" });
+  assert.equal(result.state.phase, "direct");
+  assert.equal(result.pageAction.action, "scroll");
+  assert.equal(result.pageAction.sessionId, sessionId);
+  assert.equal(result.pageAction.requestId, "m4");
+  assert.equal((await input("activateSelected", "m4", { expectedItemId: "scroll" })).pageAction, undefined);
+});
+
+test("menu close is confirmed twice, records URL, and navigation cancels confirmation", async () => {
+  const worker = createWorker();
+  const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
+  const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
+  await input("openTitles", "c1");
+  await input("groupPrevious", "c2");
+  for (let i = 0; i < 4; i++) await input("selectionNext", `c3-${i}`);
+  assert.equal((await input("activateSelected", "c4", { expectedItemId: "close" })).state.closeArmed, true);
+  await worker.emit("tabs.onUpdated", 1, { status: "loading" });
+  assert.equal((await worker.send({ type: "remote:browser-state" }, extPage())).state.closeArmed, false);
+  assert.equal((await input("activateSelected", "c5", { expectedItemId: "close" })).state.closeArmed, true);
+  const closed = await input("activateSelected", "c6", { expectedItemId: "close" });
+  assert.equal(closed.ok, true);
+  assert.deepEqual(worker.calls.filter(call => call[0] === "remove"), [["remove", 1]]);
+  assert.equal(worker.store.get("remote:browser-closed")[7][0].url, "https://www.youtube.com/");
+});
+
+test("favorites save the current page and require a second confirmation to remove", async () => {
+  const worker = createWorker();
+  const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
+  const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
+  await input("openTitles", "fav1"); await input("groupNext", "fav2"); await input("selectionNext", "fav3");
+  assert.equal((await input("activateSelected", "fav4", { expectedItemId: "favoriteCurrent" })).ok, true);
+  const favorite = worker.store.get("remoteFavorites")[0];
+  assert.equal(favorite.url, "https://www.youtube.com/");
+  await input("selectionNext", "fav5");
+  const selected = await input("selectionNext", "fav6");
+  assert.equal(selected.state.selectedItemId, `removeFavorite:${favorite.id}`);
+  assert.equal((await input("activateSelected", "fav7", { expectedItemId: selected.state.selectedItemId })).state.closeArmed, true);
+  assert.equal(worker.store.get("remoteFavorites").length, 1);
+  await input("activateSelected", "fav8", { expectedItemId: selected.state.selectedItemId });
+  assert.equal(worker.store.get("remoteFavorites").length, 0);
+});
+
+test("last tab closes only after authenticated recovery ready and restores its URL", async () => {
+  const worker = createWorker({ tabs: [{ id: 1, index: 0, active: true, windowId: 7, title: "YouTube", url: "https://www.youtube.com/" }] });
+  const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
+  const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
+  await input("openTitles", "x1"); await input("groupPrevious", "x2");
+  for (let i = 0; i < 4; i++) await input("selectionNext", `x3-${i}`);
+  await input("activateSelected", "x4", { expectedItemId: "close" });
+  const closing = input("activateSelected", "x5", { expectedItemId: "close" });
+  await worker.tick();
+  const recovery = worker.tabs().find(t => t.id !== 1);
+  assert.ok(recovery);
+  assert.equal(worker.calls.filter(c => c[0] === "remove").length, 0);
+  const token = new URL(recovery.url).searchParams.get("token");
+  const sender = { id: "extension", tab: { id: recovery.id, windowId: 7 }, frameId: 0, url: recovery.url };
+  assert.equal((await worker.send({ type: "remote:recovery-ready", sessionId, token: "fake" }, sender)).ok, false);
+  assert.equal((await worker.send({ type: "remote:recovery-ready", sessionId, token }, sender)).ok, true);
+  assert.equal((await closing).ok, true);
+  assert.deepEqual(worker.calls.filter(c => c[0] === "remove"), [["remove", 1]]);
+  const recoverySend = message => worker.send({ sessionId, token, tabId: recovery.id, ...message },
+    { id: "extension", url: recovery.url }); // Extension documents may not have sender.tab.
+  assert.equal((await recoverySend({ type: "remote:browser-state" })).state.activeTabId, recovery.id);
+  assert.equal((await recoverySend({ type: "remote:browser-state", token: "fake" })).ok, false);
+  await recoverySend({ type: "remote:browser-input", input: "openTitles", requestId: "x6" });
+  for (let i = 0; i < 4; i++) await recoverySend({ type: "remote:browser-input", input: "selectionNext", requestId: `x7-${i}` });
+  const restored = await recoverySend({ type: "remote:browser-input", input: "activateSelected", expectedItemId: "restore", requestId: "x8" });
+  assert.equal(restored.ok, true);
+  assert.equal(worker.store.get("remote:browser-closed")[7].length, 0);
+  assert.equal(worker.tabs().find(t => t.active).url, "https://www.youtube.com/");
+});
+
+test("favorites settings saves serialize and reject stale or untrusted writes", async () => {
+  const worker = createWorker();
+  const message = { type: "remote:browser-favorites-save", expected: "[]",
+    favorites: [{ id: "test", title: "Example", url: "https://example.com/" }] };
+  assert.equal((await worker.send(message, youtube())).ok, false);
+  assert.equal((await worker.send(message, extPage())).ok, true);
+  assert.equal((await worker.send({ ...message, favorites: [] }, extPage())).error.code, "CONFLICT");
+});
+
+test("recent tab follows real activation and supports A/B return", async () => {
+  const worker = createWorker();
+  const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
+  await worker.send({ type: "remote:browser-input", sessionId, input: "nextTab", requestId: "r1" }, youtube());
+  await worker.send({ type: "remote:browser-input", sessionId, input: "openTitles", requestId: "r2" }, site());
+  const result = await worker.send({ type: "remote:browser-input", sessionId, input: "activateSelected", expectedItemId: "previousRecent", requestId: "r3" }, site());
+  assert.equal(result.state.activeTabId, 1);
 });

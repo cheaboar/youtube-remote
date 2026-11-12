@@ -102,6 +102,76 @@ test("the browser entry shares the confirm key and migrates without resetting se
   legacy.bindings.back = "Enter";
   assert.match(R.validate(legacy), /同一个按键/);
 });
+test("browser page controls need no keyboard key but stay recordable", () => {
+  const defaults = R.cloneDefaults();
+  assert.equal(defaults.bindings.focusMode, "");
+  assert.equal(defaults.bindings.focusInput, "");
+  assert.equal(defaults.bindings.browserClose, "");
+  assert.equal(R.validate(defaults), "");
+  // The remote uses the browser mode's action list (arrows + confirm); Tab, Backspace and
+  // Alt+Shift+I would only work on a keyboard, so they must not be grabbed by default.
+  assert.equal(R.resolve(defaults, "Tab"), null);
+  assert.equal(R.resolve(defaults, "Backspace"), null);
+  assert.equal(R.resolve(defaults, "Alt+Shift+KeyI"), null);
+  // Page controls are browser-mode actions, not entries in the YouTube command panel.
+  assert.equal(R.SEQUENCE_ACTIONS.focusMode, undefined);
+  assert.equal(R.SEQUENCE_ACTIONS.browserClose, undefined);
+
+  const legacy = R.cloneDefaults();
+  for (const action of ["focusMode", "focusInput", "browserClose"]) delete legacy.bindings[action];
+  legacy.bindings.search = "F8";
+  legacy.enabled = false;
+  legacy.doubleInterval = 650;
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.bindings.focusMode, "");
+  assert.equal(migrated.bindings.focusInput, "");
+  assert.equal(migrated.bindings.browserClose, "");
+  assert.equal(migrated.bindings.search, "F8");
+  assert.equal(migrated.enabled, false);
+  assert.equal(migrated.doubleInterval, 650);
+  assert.equal(legacy.bindings.focusMode, undefined);
+  assert.deepEqual(R.normalize(migrated), migrated);
+
+  // A remote with extra buttons (or a keyboard) can still record direct shortcuts.
+  const custom = R.cloneDefaults();
+  custom.bindings.focusMode = "Tab";
+  custom.bindings.focusInput = "Alt+Shift+KeyI";
+  custom.bindings.browserClose = "Backspace";
+  assert.equal(R.resolve(custom, "Tab"), "focusMode");
+  assert.equal(R.resolve(custom, "Backspace"), "browserClose");
+  assert.equal(R.resolve(custom, "Alt+Shift+KeyI"), "focusInput");
+  assert.equal(R.validate(custom), "");
+  assert.deepEqual(R.normalize(custom), custom);
+
+  // The duplicate check still applies once a key is recorded.
+  const conflict = R.cloneDefaults();
+  conflict.bindings.search = "Tab";
+  conflict.bindings.focusMode = "Tab";
+  assert.match(R.validate(conflict), /同一个按键/);
+  conflict.bindings.focusMode = "Backspace";
+  assert.equal(R.validate(conflict), "");
+});
+test("favorites normalize independently, reject unsafe URLs and keep stable IDs", () => {
+  assert.equal(R.safeWebUrl("javascript:alert(1)"), "");
+  assert.equal(R.safeWebUrl("https://user:pass@example.com/"), "");
+  assert.equal(R.safeWebUrl("file:///tmp/a"), "");
+  assert.equal(R.safeWebUrl("https://EXAMPLE.com"), "https://example.com/");
+  const items = R.normalizeFavorites([
+    { id: "a", title: " A ", url: "https://example.com" },
+    { id: "b", title: "duplicate", url: "https://example.com/" },
+    { id: "a", title: "Query", url: "https://example.com/?q=1#result" },
+    { url: "javascript:alert(1)" }, null
+  ]);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].title, "A");
+  assert.notEqual(items[0].id, items[1].id);
+  assert.deepEqual(R.normalizeFavorites(items), items);
+  assert.equal(R.normalizeFavorites(Array.from({ length: 20 }, (_, i) =>
+    ({ id: `id-${i}`, url: `https://example.com/${i}` }))).length, 8);
+  assert.deepEqual(R.normalizeFavorites({}), []);
+  assert.equal(new Set(R.BROWSER_GROUPS.map(g => g.id)).size, 4);
+});
+
 test("tap counting ignores held keys, restarts after the interval and reaches three taps", () => {
   const tap = R.createTapCounter();
   assert.equal(tap.press(event("Enter", 0), 400), 1);
@@ -257,4 +327,18 @@ test("adding the guide toggle keeps legacy settings and disables conflicting pre
   assert.deepEqual(conflicting.sequences.toggleGuide, []);
   assert.equal(R.validate(conflicting), "");
   assert.equal(R.sequenceCandidates(conflicting.sequences, ["ArrowLeft", "ArrowRight", "ArrowDown"]).action, "home");
+});
+
+test("favorite icons keep only safe web URLs and fall back to the site favicon", () => {
+  const [kept, dropped] = R.normalizeFavorites([
+    { id: "a", title: "A", url: "https://a.example/page?x=1", icon: "https://cdn.example/a.png" },
+    { id: "b", title: "B", url: "https://b.example/", icon: "javascript:alert(1)" }
+  ]);
+  assert.equal(kept.icon, "https://cdn.example/a.png");
+  assert.equal("icon" in dropped, false);
+  assert.equal(R.faviconUrl(kept), "https://cdn.example/a.png");
+  assert.equal(R.faviconUrl(dropped), "https://b.example/favicon.ico");
+  assert.equal(R.safeIconUrl("https://user:pw@x.example/i.png"), "");
+  assert.equal(R.safeIconUrl("data:image/png;base64,AAAA"), "");
+  assert.equal(R.faviconUrl({ url: "ftp://x.example/" }), "");
 });

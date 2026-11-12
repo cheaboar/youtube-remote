@@ -9,7 +9,9 @@
     back: "逐层返回", home: "首页", search: "搜索", guide: "左侧导航", toggleGuide: "展开 / 收起左侧导航",
     sidebar: "右侧列表", player: "播放器",
     togglePlayback: "播放 / 暂停", fullscreen: "视频全屏", restorePlayback: "恢复正常播放", historyBack: "直接返回上一页",
-    browser: "浏览器模式（双击，YouTube 内三击）"
+    browser: "浏览器模式（双击，YouTube 内三击）",
+    focusMode: "焦点模式（可选快捷键，浏览器模式内）", focusInput: "定位输入框（可选快捷键，浏览器模式内）",
+    browserClose: "关闭标签页（可选快捷键，浏览器模式内）"
   };
   const DOUBLE_ACTIONS = ["search", "sidebar", "player", "togglePlayback", "fullscreen"];
   const SEQUENCE_GROUPS = [
@@ -44,7 +46,7 @@
       back: "Escape", home: "Alt+Shift+KeyH", search: "Alt+Shift+KeyS", guide: "Alt+Shift+KeyG", toggleGuide: "Alt+Shift+KeyN",
       sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
       togglePlayback: "Alt+Shift+KeyK", fullscreen: "Alt+Shift+KeyF", restorePlayback: "Alt+Shift+KeyR", historyBack: "Alt+Shift+KeyB",
-      browser: "Enter" },
+      browser: "Enter", focusMode: "", focusInput: "", browserClose: "" },
     doubles: { search: "ArrowUp", sidebar: "ArrowDown", player: "", togglePlayback: "", fullscreen: "" },
     sequences: {
       closeTab: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight", "ArrowLeft"],
@@ -157,7 +159,8 @@
         settings.sequences[action] = conflict ? [] : [...keys];
       }
     }
-    for (const action of ["home", "guide", "toggleGuide", "restorePlayback", "browser"]) {
+    for (const action of ["home", "guide", "toggleGuide", "restorePlayback", "browser",
+      "focusMode", "focusInput", "browserClose"]) {
       if (Object.hasOwn(settings.bindings, action)) continue;
       const shortcut = defaults.bindings[action];
       const used = [...Object.values(settings.bindings), ...Object.values(settings.doubles || {})];
@@ -214,6 +217,85 @@
       get waiting() { return pending !== null; }
     };
   }
-  return { ACTIONS, DOUBLE_ACTIONS, SEQUENCE_ACTIONS, SEQUENCE_GROUPS, cloneDefaults, chord, label, validate, normalize,
+  const FAVORITES_KEY = "remoteFavorites";
+  const BROWSER_GROUPS = [
+    { id: "common", title: "常用", items: [
+      { id: "previousRecent", title: "返回上个标签" }, { id: "scroll", title: "滚动网页" },
+      { id: "input", title: "选择输入框" }, { id: "focus", title: "网页焦点模式" },
+      { id: "restore", title: "恢复上次关闭" }] },
+    { id: "sites", title: "网站", items: [] },
+    { id: "tabs", title: "标签", items: [] },
+    { id: "page", title: "页面", items: [
+      { id: "scroll", title: "滚动网页" }, { id: "scrollTop", title: "回到顶部" },
+      { id: "scrollBottom", title: "到底部" }, { id: "reload", title: "刷新当前页面" },
+      { id: "close", title: "关闭当前标签页" }] }
+  ];
+  function safeWebUrl(value) {
+    if (typeof value !== "string" || value.length > 4096) return "";
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : "";
+    } catch (_) { return ""; }
+  }
+  function safeIconUrl(value) {
+    if (typeof value !== "string" || value.length > 2048) return "";
+    try {
+      const url = new URL(value);
+      return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : "";
+    } catch (_) { return ""; }
+  }
+  // Saved page icon first, then the site's conventional /favicon.ico. Callers fall back to a letter badge on load errors.
+  function faviconUrl(item) {
+    const saved = safeIconUrl(item?.icon);
+    if (saved) return saved;
+    const page = safeWebUrl(item?.url);
+    return page ? `${new URL(page).origin}/favicon.ico` : "";
+  }
+  function iconLetter(title) {
+    return (Array.from(String(title || "").trim())[0] || "•").toUpperCase();
+  }
+  // With `optional`, nothing is shown (and no space is reserved) until the image has actually loaded.
+  function buildIcon(doc, src, title, { optional = false } = {}) {
+    const badge = doc.createElement("span");
+    badge.setAttribute("aria-hidden", "true");
+    badge.className = "fav-icon";
+    Object.assign(badge.style, { position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
+      flex: "0 0 auto", width: "20px", height: "20px", borderRadius: "5px", overflow: "hidden", boxSizing: "border-box",
+      background: "rgba(120,130,150,.2)", color: "inherit", font: "600 11px/1 system-ui,sans-serif" });
+    if (!optional) badge.textContent = iconLetter(title);
+    else badge.style.display = "none";
+    const safe = safeIconUrl(src);
+    if (safe) {
+      const img = doc.createElement("img");
+      img.alt = ""; img.referrerPolicy = "no-referrer"; img.decoding = "async"; img.draggable = false;
+      img.src = safe;
+      Object.assign(img.style, { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", background: "#fff" });
+      if (optional) {
+        img.addEventListener("load", () => { if (img.naturalWidth > 0) badge.style.display = "inline-flex"; else badge.remove(); });
+        img.addEventListener("error", () => badge.remove());
+      } else img.addEventListener("error", () => img.remove());
+      badge.append(img);
+    }
+    return badge;
+  }
+  function normalizeFavorites(value) {
+    if (!Array.isArray(value)) return [];
+    const result = [], urls = new Set(), ids = new Set();
+    for (const item of value) {
+      const url = safeWebUrl(item?.url);
+      if (!url || urls.has(url)) continue;
+      let id = typeof item.id === "string" && /^[a-zA-Z0-9_-]{1,60}$/.test(item.id) ? item.id : `site-${result.length + 1}`;
+      let suffix = 0;
+      while (ids.has(id)) id = `site-${result.length + 1}-${++suffix}`;
+      const title = typeof item.title === "string" ? item.title.trim().slice(0, 80) : "";
+      const icon = safeIconUrl(item.icon);
+      result.push(icon ? { id, title: title || new URL(url).hostname, url, icon } : { id, title: title || new URL(url).hostname, url });
+      urls.add(url); ids.add(id);
+      if (result.length === 8) break;
+    }
+    return result;
+  }
+  return { ACTIONS, DOUBLE_ACTIONS, SEQUENCE_ACTIONS, SEQUENCE_GROUPS, BROWSER_GROUPS, FAVORITES_KEY,
+    safeWebUrl, safeIconUrl, faviconUrl, iconLetter, buildIcon, normalizeFavorites, cloneDefaults, chord, label, validate, normalize,
     resolve, createMatcher, sequenceCandidates, createTapCounter };
 });

@@ -132,6 +132,103 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.diagnosticsUntil) diagnosticsUntil = Number(changes.diagnosticsUntil.newValue) || 0;
   if (area === "session" || changes.diagnosticsUntil) void renderEvents();
 });
+let favoriteDraft = [], favoriteSnapshot = "", favoriteDirty = false, favoriteConflict = false, favoriteReady = false;
+const favoriteVersion = (value) => JSON.stringify(value ?? null);
+function favoriteFeedback(text, error = false) {
+  $("favorite-feedback").textContent = text; $("favorite-feedback").classList.toggle("error", error);
+}
+function favoritePreview(item) {
+  const icon = R.buildIcon(document, R.faviconUrl(item), item.title || item.url);
+  icon.style.alignSelf = "center"; icon.style.marginTop = "18px";
+  return icon;
+}
+function renderFavorites() {
+  const host = $("favorites"); host.replaceChildren();
+  if (!favoriteDraft.length) { const empty = document.createElement("p"); empty.className = "hint"; empty.textContent = "还没有常用网站。"; host.append(empty); }
+  favoriteDraft.forEach((item, index) => {
+    const row = document.createElement("div"); row.className = "favorite-row";
+    for (const [field, label, maxLength] of [["title", "名称", 80], ["url", "网址", 4096]]) {
+      const wrapper = document.createElement("label"); wrapper.textContent = `${label} ${index + 1}`;
+      const input = document.createElement("input"); input.type = field === "url" ? "url" : "text";
+      input.maxLength = maxLength; input.value = item[field];
+      input.addEventListener("input", () => {
+        item[field] = input.value; favoriteDirty = true;
+        if (field === "url") { delete item.icon; const next = favoritePreview(item); preview.replaceWith(next); preview = next; }
+        else if (preview.firstChild?.nodeType === Node.TEXT_NODE) preview.firstChild.nodeValue = R.iconLetter(item.title);
+      });
+      wrapper.append(input); row.append(wrapper);
+    }
+    let preview = favoritePreview(item);
+    row.prepend(preview);
+    const actions = document.createElement("div"); actions.className = "favorite-actions";
+    for (const [label, direction] of [["上移", -1], ["下移", 1], ["删除", 0]]) {
+      const button = document.createElement("button"); button.textContent = label;
+      button.setAttribute("aria-label", `${label}网站 ${index + 1}`);
+      button.disabled = direction < 0 ? index === 0 : direction > 0 ? index === favoriteDraft.length - 1 : false;
+      button.addEventListener("click", () => {
+        if (!direction) favoriteDraft.splice(index, 1);
+        else [favoriteDraft[index], favoriteDraft[index + direction]] = [favoriteDraft[index + direction], favoriteDraft[index]];
+        favoriteDirty = true; renderFavorites();
+      });
+      actions.append(button);
+    }
+    row.append(actions); host.append(row);
+  });
+  $("favorite-add").disabled = !favoriteReady || favoriteDraft.length >= 8;
+  $("favorite-save").disabled = !favoriteReady;
+}
+async function loadFavorites() {
+  try {
+    const saved = await chrome.storage.local.get(R.FAVORITES_KEY);
+    favoriteSnapshot = favoriteVersion(saved[R.FAVORITES_KEY]);
+    favoriteDraft = R.normalizeFavorites(saved[R.FAVORITES_KEY]);
+    favoriteDirty = false; favoriteConflict = false; favoriteReady = true;
+    renderFavorites(); favoriteFeedback("已加载常用网站。");
+  } catch (_) { favoriteFeedback("加载失败，请重新打开设置页。", true); }
+}
+$("favorite-add").addEventListener("click", () => {
+  if (favoriteDraft.length >= 8) return;
+  favoriteDraft.push({ id: `site-${crypto.randomUUID()}`, title: "", url: "" }); favoriteDirty = true; renderFavorites();
+});
+$("favorite-reload").addEventListener("click", () => {
+  if (favoriteDirty && !confirm("重新加载会丢弃尚未保存的常用网站修改，继续吗？")) return;
+  void loadFavorites();
+});
+$("favorite-save").addEventListener("click", async () => {
+  const urls = new Set();
+  for (const item of favoriteDraft) {
+    const url = R.safeWebUrl(item.url);
+    if (!url || url.length > 4096) return favoriteFeedback("请输入有效的 HTTP(S) 网址，且不能包含用户名或密码（最多 4096 字符）。", true);
+    if (!item.title.trim() || item.title.trim().length > 80) return favoriteFeedback("请填写网站名称（最多 80 字符）。", true);
+    if (urls.has(url)) return favoriteFeedback("网址重复，请先删除或修改重复的网站。", true);
+    urls.add(url);
+  }
+  try {
+    const normalized = R.normalizeFavorites(favoriteDraft);
+    const expected = JSON.stringify(R.normalizeFavorites(favoriteSnapshot === "null" ? [] : JSON.parse(favoriteSnapshot)));
+    const result = await chrome.runtime.sendMessage({ type: "remote:browser-favorites-save",
+      expected, favorites: normalized });
+    if (!result?.ok) {
+      if (result?.error?.code === "CONFLICT") {
+        favoriteConflict = true;
+        return favoriteFeedback("常用网站已在其他位置更改。请先重新加载，再重新编辑，避免覆盖。", true);
+      }
+      return favoriteFeedback("收藏格式无效或保存失败，请检查后重试。", true);
+    }
+    favoriteSnapshot = JSON.stringify(result.favorites); favoriteDraft = result.favorites;
+    favoriteDirty = false; favoriteConflict = false;
+    renderFavorites(); favoriteFeedback("常用网站已保存。");
+  } catch (_) { favoriteFeedback("保存失败，请重试。", true); }
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[R.FAVORITES_KEY] || !favoriteReady) return;
+  const value = changes[R.FAVORITES_KEY].newValue;
+  if (favoriteVersion(value) === favoriteSnapshot) return;
+  if (favoriteDirty) { favoriteConflict = true; favoriteFeedback("常用网站已在其他位置更改。请先重新加载，再重新编辑，避免覆盖。", true); }
+  else { favoriteSnapshot = favoriteVersion(value); favoriteDraft = R.normalizeFavorites(value); renderFavorites(); favoriteFeedback("常用网站已更新。"); }
+});
+renderFavorites(); void loadFavorites();
+
 const SITE_ORIGINS = ["http://*/*", "https://*/*"];
 async function browserModeState() {
   try { return (await chrome.runtime.sendMessage({ type: "remote:browser-state" }))?.state || null; }

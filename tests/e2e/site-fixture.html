@@ -7,6 +7,9 @@
     body { font: 16px/1.7 system-ui, sans-serif; margin: 40px; color: #26282d; }
     h1 { margin: 0 0 12px; font-size: 24px; }
     a { display: block; margin: 8px 0; color: #0059bd; }
+    #scrollbox { width: 360px; height: 140px; overflow: auto; }
+    #scrollcontent { width: 900px; height: 1000px; }
+    #spacer { height: 1200px; }
     input, textarea { display: block; width: 320px; margin: 14px 0; padding: 8px; font: inherit; }
   </style>
 </head>
@@ -14,9 +17,22 @@
   <h1 id="heading">远程遥控测试页</h1>
   <p>用于验证浏览器全局模式的普通网页。</p>
   <nav><a href="/one">页面一</a><a href="/two">页面二</a></nav>
-  <input id="text" placeholder="输入框保留原生按键">
+  <input id="readonly" readonly value="只读输入框">
+  <input id="text" placeholder="输入框保留原生按键" value="示例文字">
   <textarea id="notes" rows="3"></textarea>
+  <input id="second" placeholder="第二个输入框">
+  <button id="action-one" type="button">操作一</button>
+  <button id="action-two" type="button">操作二</button>
+  <select id="choice"><option>甲</option><option>乙</option></select>
+  <div id="editor" contenteditable="true">可编辑区域</div>
+  <input id="hidden" type="hidden" value="hidden">
+  <button id="disabled" type="button" disabled>不可用</button>
+  <div id="scrollbox" tabindex="0"><div id="scrollcontent">嵌套滚动容器</div></div>
+  <div id="spacer"></div>
 <script>
+  document.querySelector("#action-one").addEventListener("click", () => {
+    window.actionClicks = (window.actionClicks || 0) + 1;
+  });
   window.nativeEvents = [];
   addEventListener("keydown", event => {
     if (!event.defaultPrevented) window.nativeEvents.push(event.key);
