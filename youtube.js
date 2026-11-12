@@ -142,6 +142,111 @@
     return [...root.querySelectorAll("ytd-comments#comments,ytd-comments,#comments")].find(visible) ||
       [...root.querySelectorAll("#comment-teaser,ytd-item-section-renderer#comment-item-section")].find(visible) || null;
   }
+  function firstMatching(selectors, root = document, usableOnly = false) {
+    for (const selector of selectors) {
+      const found = [...root.querySelectorAll(selector)].find(element => visible(element) &&
+        (!usableOnly || !element.disabled && element.getAttribute("aria-disabled") !== "true"));
+      if (found) return found;
+    }
+    return null;
+  }
+  function shortsRoots() {
+    const center = (element) => {
+      const box = element.getBoundingClientRect();
+      return Math.abs(box.top + box.height / 2 - innerHeight / 2);
+    };
+    return [...document.querySelectorAll("ytd-reel-video-renderer,ytd-shorts,ytd-shorts-page,#shorts-container,#shorts-player")]
+      .filter(visible).sort((a, b) => center(a) - center(b));
+  }
+  function shortsCommentsButton() {
+    const selectors = [
+      'reel-action-bar-view-model button[aria-label*="comment" i]',
+      'reel-action-bar-view-model button[aria-label*="评论"]',
+      'yt-reel-action-bar-view-model button[aria-label*="comment" i]',
+      'yt-reel-action-bar-view-model button[aria-label*="评论"]',
+      'ytd-reel-player-overlay-renderer button[aria-label*="comment" i]',
+      'ytd-reel-player-overlay-renderer button[aria-label*="评论"]',
+      "comment-button-view-model button", "ytd-comments-button-renderer button",
+      "#comments-button button", "#comment-button button",
+      'button[aria-label*="comments" i]', 'button[aria-label*="评论"]',
+      'button[aria-label*="comment" i]'
+    ];
+    for (const root of shortsRoots()) {
+      const found = firstMatching(selectors, root, true);
+      if (found) return found;
+    }
+    return firstMatching(selectors, document, true);
+  }
+  function shortsLikeButton() {
+    const selectors = [
+      'button[aria-label*="like this video" i]', 'button[aria-label*="喜欢此视频" i]',
+      "like-button-view-model button", "ytd-toggle-button-renderer#like-button button",
+      "#like-button button", "ytd-like-button-renderer button",
+      'button[aria-label="Like"]', 'button[aria-label="喜欢"]', 'button[aria-label="点赞"]'
+    ];
+    // The comments panel also contains like buttons; search the action bar first and never
+    // treat a comment's like button as the video's.
+    const bars = [...document.querySelectorAll(
+      "reel-action-bar-view-model,yt-reel-action-bar-view-model,ytd-reel-player-overlay-renderer")].filter(visible);
+    for (const bar of bars) {
+      const found = firstMatching(selectors, bar, true);
+      if (found) return found;
+    }
+    for (const root of shortsRoots()) {
+      const found = [...root.querySelectorAll(selectors.join(","))].find(element => visible(element) &&
+        !element.closest("ytd-engagement-panel-section-list-renderer,ytd-comments") &&
+        !element.disabled && element.getAttribute("aria-disabled") !== "true");
+      if (found) return found;
+    }
+    return firstMatching(selectors, document, true);
+  }
+  function shortsLiked(button) {
+    if (!button) return false;
+    if (button.getAttribute("aria-pressed") === "true") return true;
+    const root = button.closest("like-button-view-model,toggle-button-view-model,ytd-toggle-button-renderer,#like-button");
+    return !!root && (root.getAttribute("aria-pressed") === "true" || root.hasAttribute("is-active") ||
+      !!root.querySelector('[aria-pressed="true"],.yt-spec-button-shape-next--toggle-active'));
+  }
+  function shortsCommentsPanel() {
+    const selectors = [
+      'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-comments-section"]',
+      'ytd-engagement-panel-section-list-renderer[target-id*="comment" i]',
+      "ytd-comments#comments", "ytd-comments"
+    ];
+    return [...document.querySelectorAll(selectors.join(","))].find(element => visible(element) &&
+      element.getAttribute("visibility") !== "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN") || null;
+  }
+  function shortsCommentsCloseButton() {
+    const panel = shortsCommentsPanel();
+    if (!panel) return null;
+    return firstMatching(["#visibility-button button", "#close-button button",
+      'ytd-engagement-panel-title-header-renderer button[aria-label*="close" i]',
+      'button[aria-label="Close"]', 'button[aria-label="关闭"]',
+      'button[aria-label*="close" i]', 'button[aria-label*="关闭"]'], panel, true);
+  }
+  function shortsCommentsScroller() {
+    const panel = shortsCommentsPanel();
+    if (!panel) return null;
+    const thread = [...panel.querySelectorAll("ytd-comment-thread-renderer,ytd-comment-view-model,#comment")].find(visible);
+    const inner = scrollParent(thread);
+    if (inner) return inner;
+    const candidates = [panel, ...panel.querySelectorAll("#contents,#content,[role='list'],ytd-comments")]
+      .filter(element => /(auto|scroll)/.test(getComputedStyle(element).overflowY) &&
+        element.scrollHeight > element.clientHeight + 1);
+    return candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0] ||
+      scrollParent(panel) || panel;
+  }
+  function focusShortsComments() {
+    const scroller = shortsCommentsScroller();
+    if (!scroller) return false;
+    if (!scroller.hasAttribute("tabindex")) scroller.setAttribute("tabindex", "-1");
+    scroller.focus({ preventScroll: true });
+    return document.activeElement === scroller;
+  }
+  function shortsNavigationButton(direction) {
+    if (direction !== "up" && direction !== "down") return null;
+    return firstMatching([`#navigation-button-${direction} button`], document, true);
+  }
   function pipButton() {
     const root = player();
     if (!root) return null;
@@ -172,5 +277,7 @@
     return false;
   }
   globalThis.YouTubeRemoteDOM = { visible, isWatch, isShorts, routeKey, identity, candidates, firstVisible, guideItems, guideButton, guideExpanded, sidebar, expandPlaylist,
-    searchInput, editing, scrollFocus, video, player, playerControl, playerMenuItem, pipButton, comments, overlay, scrollParent, scrollForMore, submitSearch };
+    searchInput, editing, scrollFocus, video, player, playerControl, playerMenuItem, pipButton, comments, overlay, scrollParent, scrollForMore, submitSearch,
+    shortsCommentsButton, shortsLikeButton, shortsLiked, shortsCommentsPanel, shortsCommentsCloseButton, shortsCommentsScroller,
+    focusShortsComments, shortsNavigationButton };
 })();

@@ -14,6 +14,9 @@
     browserClose: "关闭标签页（可选快捷键，浏览器模式内）"
   };
   const DOUBLE_ACTIONS = ["search", "sidebar", "player", "togglePlayback", "fullscreen"];
+  // Shorts reuses the direction keys for video switching, so its doubles are scoped to that page.
+  const SHORTS_DOUBLE_ACTIONS = ["shortsComments", "shortsCloseComments", "shortsLike"];
+  const DOUBLE_LABELS = { shortsComments: "展开评论并聚焦", shortsCloseComments: "关闭评论", shortsLike: "点赞" };
   const SEQUENCE_GROUPS = [
     { id: "common", title: "常用", actions: { togglePlayback: "播放 / 暂停", historyBack: "返回上一页",
       search: "定位搜索框", sidebar: "右侧列表", home: "返回首页", guide: "左侧导航",
@@ -47,7 +50,8 @@
       sidebar: "Alt+Shift+KeyY", player: "Alt+Shift+KeyP",
       togglePlayback: "Alt+Shift+KeyK", fullscreen: "Alt+Shift+KeyF", restorePlayback: "Alt+Shift+KeyR", historyBack: "Alt+Shift+KeyB",
       browser: "Enter", focusMode: "", focusInput: "", browserClose: "" },
-    doubles: { search: "ArrowUp", sidebar: "ArrowDown", player: "", togglePlayback: "", fullscreen: "" },
+    doubles: { search: "ArrowUp", sidebar: "ArrowDown", player: "", togglePlayback: "", fullscreen: "",
+      shortsComments: "ArrowRight", shortsCloseComments: "ArrowLeft", shortsLike: "ArrowUp" },
     sequences: {
       closeTab: ["ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"], reload: ["ArrowLeft", "ArrowRight", "ArrowLeft"],
       home: ["ArrowLeft", "ArrowUp"], search: ["ArrowLeft", "ArrowLeft"],
@@ -106,15 +110,17 @@
       if (reservedChord(value)) return `${label(value)} 是浏览器或系统保留快捷键`;
       used.set(value, action);
     }
-    const doubles = new Set();
-    for (const action of DOUBLE_ACTIONS) {
-      const value = settings.doubles?.[action];
-      if (typeof value !== "string" || (value && !validChord(value))) return "请重新录制双击按键";
-      if (!value) continue;
-      if (doubles.has(value)) return "两个双击操作不能使用同一个按键";
-      const single = used.get(value);
-      if (single && !["up", "down", "left", "right"].includes(single)) return "双击按键只能与方向操作共用，避免重复确认或返回";
-      doubles.add(value);
+    for (const actions of [DOUBLE_ACTIONS, SHORTS_DOUBLE_ACTIONS]) {
+      const doubles = new Set();
+      for (const action of actions) {
+        const value = settings.doubles?.[action];
+        if (typeof value !== "string" || (value && !validChord(value))) return "请重新录制双击按键";
+        if (!value) continue;
+        if (doubles.has(value)) return "两个双击操作不能使用同一个按键";
+        const single = used.get(value);
+        if (single && !["up", "down", "left", "right"].includes(single)) return "双击按键只能与方向操作共用，避免重复确认或返回";
+        doubles.add(value);
+      }
     }
     const sequences = [];
     for (const action of Object.keys(SEQUENCE_ACTIONS)) {
@@ -169,6 +175,17 @@
       const shared = action === "browser" && shortcut === settings.bindings.confirm;
       settings.bindings[action] = used.includes(shortcut) && !shared ? "" : shortcut;
     }
+    // Shorts doubles were added later. Keep existing remotes working and leave a default unbound
+    // when it would collide with another double on the same page or a non-directional single key.
+    for (const action of [...DOUBLE_ACTIONS, ...SHORTS_DOUBLE_ACTIONS]) {
+      if (Object.hasOwn(settings.doubles, action)) continue;
+      const shortcut = defaults.doubles[action];
+      const group = SHORTS_DOUBLE_ACTIONS.includes(action) ? SHORTS_DOUBLE_ACTIONS : DOUBLE_ACTIONS;
+      const used = group.filter(name => Object.hasOwn(settings.doubles, name)).map(name => settings.doubles[name]);
+      const single = shortcut && Object.keys(ACTIONS).find(name => settings.bindings[name] === shortcut);
+      const directional = single && ["up", "down", "left", "right"].includes(single);
+      settings.doubles[action] = shortcut && used.includes(shortcut) || single && !directional ? "" : shortcut;
+    }
     if (!Object.hasOwn(settings, "sequences")) {
       settings.sequences = cloneDefaults().sequences;
       // Old remotes may use an arrow as Back. Keep that mapping and avoid creating reserved sequences.
@@ -183,10 +200,15 @@
     let previous = null;
     return {
       reset() { previous = null; },
-      match(event, settings, region) {
+      match(event, settings, region, page = "watch") {
         const value = chord(event);
         let action = resolve(settings, value);
-        const doubleAction = region === "player" && DOUBLE_ACTIONS.find((name) => settings.doubles[name] === value && value);
+        const shorts = page === "shorts";
+        const doubles = shorts ? SHORTS_DOUBLE_ACTIONS : DOUBLE_ACTIONS;
+        const doubleRegion = region === "player" || (shorts && region === "shortsComments");
+        // ↑↓ browse the comment list; a quick second tap must not like the video behind it.
+        const doubleAction = doubleRegion && doubles.find((name) =>
+          settings.doubles[name] === value && value && !(shorts && region === "shortsComments" && name === "shortsLike"));
         if (!doubleAction) previous = null;
         else if (!event.repeat) {
           if (previous?.value === value && event.timeStamp >= previous.time && event.timeStamp - previous.time <= settings.doubleInterval) {
@@ -295,7 +317,7 @@
     }
     return result;
   }
-  return { ACTIONS, DOUBLE_ACTIONS, SEQUENCE_ACTIONS, SEQUENCE_GROUPS, BROWSER_GROUPS, FAVORITES_KEY,
+  return { ACTIONS, DOUBLE_ACTIONS, SHORTS_DOUBLE_ACTIONS, DOUBLE_LABELS, SEQUENCE_ACTIONS, SEQUENCE_GROUPS, BROWSER_GROUPS, FAVORITES_KEY,
     safeWebUrl, safeIconUrl, faviconUrl, iconLetter, buildIcon, normalizeFavorites, cloneDefaults, chord, label, validate, normalize,
     resolve, createMatcher, sequenceCandidates, createTapCounter };
 });

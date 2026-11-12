@@ -5,7 +5,8 @@
   const { nextItem } = globalThis.YouTubeKeyboardNavigation;
   const matcher = R.createMatcher();
   const highlight = "youtube-keyboard-selected";
-  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", guide: "左侧导航", search: "搜索", comments: "评论区" };
+  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", guide: "左侧导航", search: "搜索",
+    comments: "评论区", shortsComments: "Shorts 评论" };
   const selectionRegions = ["list", "sidebar", "guide"];
   let settings = R.cloneDefaults();
   let diagnosticsUntil = 0;
@@ -21,6 +22,7 @@
   let intent = 0;
   let pending = null;
   let pendingTimer;
+  let shortsPendingSingle = null;
   let saveTimer;
   let mutationTimer;
   let messageTimer;
@@ -103,8 +105,18 @@
     const uiParent = document.fullscreenElement || document.documentElement;
     if (ui.host.parentElement !== uiParent) uiParent.append(ui.host);
     const title = names[region];
+    const confirmHint = settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键";
+    const doubleHint = (action, text) => {
+      const value = settings.doubles[action];
+      return value ? `双击 ${R.label(value)} ${text}` : "";
+    };
+    const playerHint = D.isShorts()
+      ? [doubleHint("shortsComments", "展开评论"), doubleHint("shortsCloseComments", "关闭评论"),
+        doubleHint("shortsLike", "点赞"), confirmHint].filter(Boolean).join(" · ")
+      : confirmHint;
     const detail = transient || (region === "search" ? "语音输入后按确认，返回清空并退出" : region === "player"
-      ? settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键"
+      ? playerHint
+      : region === "shortsComments" ? [doubleHint("shortsCloseComments", "关闭评论"), "↑↓ 翻看评论"].filter(Boolean).join(" · ")
       : region === "comments" ? "↑↓ 滚动评论 · ←→ 翻页 · 恢复键回到正常播放"
       : region === "guide" ? "↑↓选择导航 · 确认打开 · → 返回节目" : "方向键选片 · 确认播放");
     if (ui.title.textContent !== title) ui.title.textContent = title;
@@ -417,6 +429,7 @@
     render();
   }
   function cancelPending() {
+    cancelShortsPending();
     intent++;
     pending = null;
     clearTimeout(pendingTimer);
@@ -707,6 +720,86 @@
     try { await player.requestFullscreen(); }
     catch (_) { notice("无法进入全屏，请使用播放器全屏按钮"); }
   }
+  function cancelShortsPending() {
+    if (shortsPendingSingle) clearTimeout(shortsPendingSingle.timer);
+    shortsPendingSingle = null;
+  }
+  function replayShortsMove(action) {
+    if (action === "up" || action === "down") {
+      D.shortsNavigationButton(action)?.click();
+      return;
+    }
+    playerMove(action);
+  }
+  function flushShortsPending() {
+    const queued = shortsPendingSingle;
+    if (!queued) return;
+    shortsPendingSingle = null;
+    clearTimeout(queued.timer);
+    replayShortsMove(queued.action);
+  }
+  function scheduleShortsSingle(action, value) {
+    if (shortsPendingSingle) flushShortsPending();
+    const timer = setTimeout(() => {
+      if (shortsPendingSingle?.timer !== timer) return;
+      shortsPendingSingle = null;
+      replayShortsMove(action);
+    }, settings.doubleInterval);
+    shortsPendingSingle = { action, value, timer };
+  }
+  async function openShortsComments(token) {
+    if (!D.isShorts()) return notice("评论快捷键仅用于 Shorts 页面");
+    if (!await exitFullscreen() || token !== intent) return;
+    if (!D.shortsCommentsPanel()) {
+      const button = D.shortsCommentsButton();
+      if (!button) return notice("未找到评论按钮，请稍后重试");
+      button.click();
+    }
+    notice("正在打开评论…");
+    waitFor(() => {
+      if (!D.shortsCommentsPanel()) return false;
+      clearSelection();
+      setRegion("shortsComments");
+      D.focusShortsComments();
+      transient = "";
+      render();
+      remember();
+      return true;
+    }, () => notice("评论区暂未打开，请稍后重试"), token);
+  }
+  function closeShortsComments() {
+    if (!D.isShorts()) { notice("评论快捷键仅用于 Shorts 页面"); return; }
+    const panel = D.shortsCommentsPanel();
+    if (!panel) {
+      if (region === "shortsComments") setRegion("player");
+      notice("评论未打开");
+      return;
+    }
+    const close = D.shortsCommentsCloseButton();
+    if (close) close.click();
+    else {
+      const button = D.shortsCommentsButton();
+      if (button) button.click();
+      else {
+        const escape = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true });
+        synthetic.add(escape);
+        (document.activeElement || panel).dispatchEvent(escape);
+      }
+    }
+    clearSelection();
+    setRegion("player");
+    ownFocus();
+    notice("已关闭评论");
+    remember();
+  }
+  function likeShorts() {
+    if (!D.isShorts()) { notice("点赞快捷键仅用于 Shorts 页面"); return; }
+    const button = D.shortsLikeButton();
+    if (!button) { notice("未找到点赞按钮，请稍后重试"); return; }
+    if (D.shortsLiked(button)) { notice("已点赞"); return; }
+    button.click();
+    notice("已点赞");
+  }
   function playerMove(action) {
     const video = D.video();
     if (!video) return notice("播放器尚未就绪");
@@ -722,6 +815,16 @@
     video.currentTime = Math.max(start, Math.min(end, video.currentTime + amount));
   }
   function move(action) {
+    if (region === "shortsComments") {
+      if (!D.shortsCommentsPanel()) { setRegion("player"); notice("评论已关闭"); return; }
+      // ← / → are reserved for the close double; only ↑↓ scroll the comment list.
+      if (action !== "up" && action !== "down") return;
+      const scroller = D.shortsCommentsScroller();
+      if (!scroller) return;
+      const step = Math.max(160, Math.round((scroller.clientHeight || innerHeight) * 0.4));
+      scroller.scrollBy({ top: (action === "down" ? 1 : -1) * step, behavior: "instant" });
+      return;
+    }
     if (region === "comments") {
       const page = action === "left" || action === "right";
       const step = Math.max(160, Math.round(innerHeight * (page ? 0.85 : 0.4)));
@@ -753,7 +856,7 @@
     if (action === "down" && nextItem(list, next.element, "ArrowDown").element === next.element) D.scrollForMore(next.element);
   }
   async function confirm() {
-    if (region === "comments") return;
+    if (region === "comments" || region === "shortsComments") return;
     if (region === "player") return togglePlayback();
     if (region === "search") {
       const input = D.searchInput();
@@ -808,6 +911,9 @@
       if (result?.ok === false) notice(action === "closeTab" ? "无法关闭当前标签页，请重试" : "无法刷新页面，请重试");
       return;
     }
+    if (action === "shortsComments") return openShortsComments(token);
+    if (action === "shortsCloseComments") return closeShortsComments();
+    if (action === "shortsLike") return likeShorts();
     if (["up", "down", "left", "right"].includes(action)) return region === "player" ? playerMove(action) : move(action);
     if (action === "search") return enterSearch(token);
     if (action === "home") return goHome(token);
@@ -827,6 +933,7 @@
       if (region === "search") return backFromSearch();
       if (document.fullscreenElement) return exitFullscreen();
       if (region === "guide") return backFromGuide();
+      if (region === "shortsComments") return closeShortsComments();
       if (region === "comments") return restorePlayback(token);
       if (region === "sidebar") return enterPlayer();
       return historyBack();
@@ -843,6 +950,11 @@
     // browser.js owns every key while the global mode is active.
     if (browserActive) return;
     if (D.routeKey() !== route) void enterRoute();
+    const pressedChord = R.chord(event);
+    if (shortsPendingSingle) {
+      if (event.isComposing || composing || !settings.enabled) cancelShortsPending();
+      else if (pressedChord && pressedChord !== shortsPendingSingle.value) flushShortsPending();
+    }
     if (event.isComposing || composing || event.keyCode === 229 || event.key === "Process") {
       cancelConfirmation(); leaveSequences(); matcher.reset(); logEvent(event); return;
     }
@@ -856,7 +968,7 @@
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     }
     const inSearch = atSearch && region === "search";
-    let action = matcher.match(event, settings, region);
+    let action = matcher.match(event, settings, region, D.isShorts() ? "shorts" : "watch");
     if (event.repeat && R.resolve(settings, R.chord(event)) === "confirm") action = "confirm";
     logEvent(event, action);
     if (action !== "confirm" || event.defaultPrevented) cancelConfirmation();
@@ -889,6 +1001,25 @@
       matcher.reset();
       cancelConfirmation();
       return;
+    }
+    // Shorts uses the arrows natively (switch video / seek). When a Shorts double sits on one of
+    // them, hold the first press for the double interval so the double tap can act without first
+    // switching or seeking; replay the plain direction if no second tap arrives. The matcher
+    // reports the first press as the direction and only the second one as the double action.
+    if (settings.enabled && D.isShorts() && region === "player" && pressedChord) {
+      const doubleAction = R.SHORTS_DOUBLE_ACTIONS.find(name => settings.doubles[name] === pressedChord);
+      const single = R.resolve(settings, pressedChord);
+      if (doubleAction && ["up", "down", "left", "right"].includes(single)) {
+        if (event.repeat) { consume(event); return; }
+        if (action === doubleAction) {
+          // Second tap: drop the queued direction and fall through to the double action.
+          if (shortsPendingSingle?.value === pressedChord) cancelShortsPending();
+        } else {
+          consume(event);
+          scheduleShortsSingle(single, pressedChord);
+          return;
+        }
+      }
     }
     if (D.isShorts() && region === "player" && ["up", "down", "left", "right"].includes(action)) return;
     consume(event);
@@ -924,7 +1055,7 @@
     logEvent(e);
   }, true);
   window.addEventListener("pointerdown", (event) => {
-    cancelConfirmation(); leaveSequences();
+    cancelConfirmation(); cancelShortsPending(); leaveSequences();
     if (!settings.enabled || !D.editing(event.target) || D.scrollFocus(event.target)) return;
     cancelPending(); matcher.reset();
     if (event.target === D.searchInput() && region !== "search") { searchReturn = snapshot(); setRegion("search"); }
@@ -933,7 +1064,8 @@
     if (browserActive) { tabFocus = false; return; }
     const scroller = settings.enabled && D.scrollFocus(event.target);
     // Give the focus back before the browser starts treating arrow keys as native scrolling.
-    if (scroller && !tabFocus) ownFocus();
+    // Shorts comments deliberately keep focus so ↑↓ scroll the comment list.
+    if (scroller && !tabFocus && region !== "shortsComments") ownFocus();
     if (settings.enabled && tabFocus && event.target === D.searchInput() && region !== "search") {
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     } else if (settings.enabled && !scroller && D.editing(event.target) && event.target !== D.searchInput()) {
@@ -944,12 +1076,14 @@
   document.addEventListener("fullscreenchange", render);
   window.addEventListener("popstate", () => void enterRoute(true));
   window.addEventListener("pageshow", (event) => { if (event.persisted) void enterRoute(true, true); });
-  window.addEventListener("blur", () => { cancelConfirmation(); leaveSequences(); matcher.reset(); consumedKeys.clear(); });
+  window.addEventListener("blur", () => { cancelConfirmation(); cancelShortsPending(); leaveSequences(); matcher.reset(); consumedKeys.clear(); });
   window.addEventListener("pagehide", () => { cancelConfirmation(); leaveSequences(); void remember(true); cancelPending(); });
-  document.addEventListener("yt-navigate-start", () => { cancelConfirmation(); leaveSequences(); void remember(true); });
+  document.addEventListener("yt-navigate-start", () => {
+    cancelConfirmation(); cancelShortsPending(); leaveSequences(); matcher.reset(); void remember(true);
+  });
   document.addEventListener("yt-navigate-finish", () => void enterRoute());
   window.addEventListener("scroll", () => {
-    if (settings.enabled && D.scrollFocus(document.activeElement)) ownFocus();
+    if (settings.enabled && region !== "shortsComments" && D.scrollFocus(document.activeElement)) ownFocus();
     if (!pending && D.routeKey() === route) remember();
   }, true);
   window.addEventListener("resize", () => { if (pending) tickPending(); updateSequenceSelection(); });

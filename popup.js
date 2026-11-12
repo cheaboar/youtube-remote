@@ -1,11 +1,12 @@
 "use strict";
 const R = globalThis.YouTubeRemote;
 let entryKey = "";
-let doubleItems = [];
+let doubleItems = { watch: [], shorts: [] };
 let youtubeTab = false;
+let shortsTab = false;
 // The entry gesture depends on the page: YouTube spends the double tap on the command panel.
 function paintDoubleHelp() {
-  const items = doubleItems.slice();
+  const items = (shortsTab ? doubleItems.shorts : doubleItems.watch).slice();
   if (entryKey) items.push(`${youtubeTab ? "三击" : "双击"} ${R.label(entryKey)}：浏览器模式`);
   document.getElementById("double-help").textContent = items.join("；") || "双击操作未绑定";
 }
@@ -22,8 +23,9 @@ async function render() {
     const value = document.createElement("dd"); const key = document.createElement("kbd"); key.textContent = R.label(settings.bindings[action]); value.append(key);
     row.append(title, value); list.append(row);
   }
-  doubleItems = R.DOUBLE_ACTIONS.filter((a) => settings.doubles[a])
-    .map((a) => `双击 ${R.label(settings.doubles[a])}：${R.ACTIONS[a]}`);
+  const describe = (actions) => actions.filter((a) => settings.doubles[a])
+    .map((a) => `双击 ${R.label(settings.doubles[a])}：${R.DOUBLE_LABELS[a] || R.ACTIONS[a]}`);
+  doubleItems = { watch: describe(R.DOUBLE_ACTIONS), shorts: describe(R.SHORTS_DOUBLE_ACTIONS) };
   entryKey = settings.bindings.browser || "";
   paintDoubleHelp();
   void renderGlobal();
@@ -39,8 +41,12 @@ async function renderGlobal() {
   catch (_) { active = false; }
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const next = /^https:\/\/www\.youtube\.com\//.test(tab?.url || "");
-    if (next !== youtubeTab) { youtubeTab = next; paintDoubleHelp(); }
+    const url = tab?.url || "";
+    const next = /^https:\/\/www\.youtube\.com\//.test(url);
+    const nextShorts = /^https:\/\/www\.youtube\.com\/shorts\//.test(url);
+    if (next !== youtubeTab || nextShorts !== shortsTab) {
+      youtubeTab = next; shortsTab = nextShorts; paintDoubleHelp();
+    }
   } catch (_) { /* Keep the generic double-tap wording. */ }
   button.dataset.active = String(active);
   button.dataset.granted = String(granted);

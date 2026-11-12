@@ -203,6 +203,57 @@ test("other keys and reset break a double tap sequence", () => {
   matcher.reset();
   assert.equal(matcher.match(event("ArrowUp", 150), settings, "player"), "up");
 });
+test("Shorts doubles stay on the Shorts page and leave list keys alone", () => {
+  const matcher = R.createMatcher(), settings = R.cloneDefaults();
+  assert.equal(matcher.match(event("ArrowUp", 0), settings, "player", "shorts"), "up");
+  assert.equal(matcher.match(event("ArrowUp", 150), settings, "player", "shorts"), "shortsLike");
+  matcher.reset();
+  assert.equal(matcher.match(event("ArrowRight", 0), settings, "player", "shorts"), "right");
+  assert.equal(matcher.match(event("ArrowRight", 150), settings, "player", "shorts"), "shortsComments");
+  matcher.reset();
+  assert.equal(matcher.match(event("ArrowLeft", 0), settings, "player", "shorts"), "left");
+  assert.equal(matcher.match(event("ArrowLeft", 150), settings, "player", "shorts"), "shortsCloseComments");
+  matcher.reset();
+  // On a watch page the same keys keep their own doubles.
+  assert.equal(matcher.match(event("ArrowUp", 0), settings, "player"), "up");
+  assert.equal(matcher.match(event("ArrowUp", 150), settings, "player"), "search");
+  matcher.reset();
+  // Shorts doubles never fire in the list regions.
+  assert.equal(matcher.match(event("ArrowUp", 0), settings, "list", "shorts"), "up");
+  assert.equal(matcher.match(event("ArrowUp", 150), settings, "list", "shorts"), "up");
+});
+test("Shorts comment focus keeps ↑↓ scrolling instead of liking", () => {
+  const matcher = R.createMatcher(), settings = R.cloneDefaults();
+  assert.equal(matcher.match(event("ArrowUp", 0), settings, "shortsComments", "shorts"), "up");
+  assert.equal(matcher.match(event("ArrowUp", 150), settings, "shortsComments", "shorts"), "up");
+  matcher.reset();
+  // ← still closes the panel with a double tap.
+  assert.equal(matcher.match(event("ArrowLeft", 0), settings, "shortsComments", "shorts"), "left");
+  assert.equal(matcher.match(event("ArrowLeft", 150), settings, "shortsComments", "shorts"), "shortsCloseComments");
+});
+test("Shorts doubles migrate without resetting existing settings", () => {
+  const legacy = R.cloneDefaults();
+  for (const action of R.SHORTS_DOUBLE_ACTIONS) delete legacy.doubles[action];
+  legacy.doubles.search = "KeyZ";
+  const migrated = R.normalize(legacy);
+  assert.equal(migrated.doubles.search, "KeyZ");
+  assert.equal(migrated.doubles.shortsComments, "ArrowRight");
+  assert.equal(migrated.doubles.shortsCloseComments, "ArrowLeft");
+  assert.equal(migrated.doubles.shortsLike, "ArrowUp");
+  // A default whose single key belongs to a non-directional action stays unbound.
+  delete legacy.doubles.shortsComments;
+  legacy.bindings.right = "KeyR";
+  legacy.bindings.search = "ArrowRight";
+  assert.equal(R.normalize(legacy).doubles.shortsComments, "");
+});
+test("Shorts double validation rejects duplicates and non-directional singles", () => {
+  const settings = R.cloneDefaults();
+  settings.doubles.shortsLike = settings.doubles.shortsComments;
+  assert.match(R.validate(settings), /同一个按键/);
+  const other = R.cloneDefaults();
+  other.doubles.shortsComments = "Enter";
+  assert.match(R.validate(other), /方向操作共用/);
+});
 
 test("sequence candidates filter by ordered prefix and only complete at an exact match", () => {
   const { sequences } = R.cloneDefaults();

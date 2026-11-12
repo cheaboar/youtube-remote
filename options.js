@@ -9,8 +9,14 @@ function renderBindings() {
   for (const group of ["bindings", "doubles", "sequences"]) {
     const host = $(group);
     host.replaceChildren();
-    const actions = group === "bindings" ? Object.keys(R.ACTIONS) : group === "doubles" ? R.DOUBLE_ACTIONS : Object.keys(R.SEQUENCE_ACTIONS);
+    const actions = group === "bindings" ? Object.keys(R.ACTIONS)
+      : group === "doubles" ? [...R.DOUBLE_ACTIONS, ...R.SHORTS_DOUBLE_ACTIONS]
+      : Object.keys(R.SEQUENCE_ACTIONS);
     for (const action of actions) {
+      if (group === "doubles" && action === R.SHORTS_DOUBLE_ACTIONS[0]) {
+        const heading = document.createElement("h4"); heading.className = "binding-group";
+        heading.textContent = "Shorts 页面"; host.append(heading);
+      }
       if (group === "sequences") {
         const category = R.SEQUENCE_GROUPS.find(item => Object.keys(item.actions)[0] === action);
         if (category) {
@@ -19,7 +25,7 @@ function renderBindings() {
         }
       }
       const row = document.createElement("div"); row.className = "binding";
-      const name = group === "sequences" ? R.SEQUENCE_ACTIONS[action] : R.ACTIONS[action];
+      const name = group === "sequences" ? R.SEQUENCE_ACTIONS[action] : R.DOUBLE_LABELS[action] || R.ACTIONS[action];
       const title = document.createElement("span"); title.textContent = name;
       const keys = document.createElement("div"); keys.className = "keys";
       const button = document.createElement("button"); button.className = "record";
@@ -120,7 +126,7 @@ async function renderEvents() {
   const rows = events.map((event) => {
     const row = document.createElement("tr");
     for (const text of [new Date(event.time).toLocaleTimeString() + ` / ${event.tab}`, event.region,
-      `${event.key}\n${event.code}`, `${event.repeat ? "重复 " : ""}${event.composing ? "组合输入 " : ""}${R.ACTIONS[event.action] || R.SEQUENCE_ACTIONS[event.action] || (event.action === "sequence" ? "复合键输入" : event.type)}`]) {
+      `${event.key}\n${event.code}`, `${event.repeat ? "重复 " : ""}${event.composing ? "组合输入 " : ""}${R.ACTIONS[event.action] || R.DOUBLE_LABELS[event.action] || R.SEQUENCE_ACTIONS[event.action] || (event.action === "sequence" ? "复合键输入" : event.type)}`]) {
       const cell = document.createElement("td"); cell.textContent = text; row.append(cell);
     }
     return row;
