@@ -5,7 +5,8 @@
   const { nextItem } = globalThis.YouTubeKeyboardNavigation;
   const matcher = R.createMatcher();
   const highlight = "youtube-keyboard-selected";
-  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", guide: "左侧导航", search: "搜索" };
+  const names = { list: "节目列表", player: "播放器", sidebar: "右侧列表", guide: "左侧导航", search: "搜索",
+    comments: "评论区", shortsComments: "Shorts 评论" };
   const selectionRegions = ["list", "sidebar", "guide"];
   let settings = R.cloneDefaults();
   let diagnosticsUntil = 0;
@@ -21,6 +22,7 @@
   let intent = 0;
   let pending = null;
   let pendingTimer;
+  let shortsPendingSingle = null;
   let saveTimer;
   let mutationTimer;
   let messageTimer;
@@ -34,6 +36,7 @@
   let sequenceMode = null;
   let confirmation = null;
   let tabFocus = false;
+  let browserActive = false;
   const synthetic = new WeakSet();
   const consumedKeys = new Set();
   const localSnapshots = new Map();
@@ -43,9 +46,29 @@
     catch (_) { return Promise.resolve(null); }
   }
   function items() { return D.candidates(region === "guide" ? "guide" : region === "sidebar" ? area : "list"); }
+  function sequenceGroups() {
+    if (D.isWatch() || D.isShorts()) {
+      const common = R.SEQUENCE_GROUPS.find(group => group.id === "common");
+      const player = R.SEQUENCE_GROUPS.find(group => group.id === "player");
+      return [
+        { ...player, actions: { togglePlayback: common.actions.togglePlayback, ...player.actions } },
+        { ...common, actions: Object.fromEntries(Object.entries(common.actions).filter(([action]) => action !== "togglePlayback")) },
+        ...R.SEQUENCE_GROUPS.filter(group => group.id === "page")
+      ];
+    }
+    const playback = new Set(["togglePlayback", "sidebar", ...Object.keys(R.SEQUENCE_GROUPS.find(group => group.id === "player").actions)]);
+    const actions = Object.fromEntries(Object.entries(R.SEQUENCE_ACTIONS).filter(([action]) => playback.has(action)));
+    return [
+      ...R.SEQUENCE_GROUPS.filter(group => group.id !== "player").map(group => ({
+        ...group, actions: Object.fromEntries(Object.entries(group.actions).filter(([action]) => !playback.has(action)))
+      })),
+      { id: "player", title: "播放页可用", actions, secondary: true }
+    ];
+  }
   function sequenceChoices() {
-    return sequenceMode?.prefix.length ? R.sequenceCandidates(settings.sequences, sequenceMode.prefix).candidates :
+    const matches = sequenceMode?.prefix.length ? R.sequenceCandidates(settings.sequences, sequenceMode.prefix).candidates :
       Object.keys(R.SEQUENCE_ACTIONS).map(action => ({ action, keys: settings.sequences[action] || [] }));
+    return sequenceGroups().flatMap(group => matches.filter(item => Object.hasOwn(group.actions, item.action)));
   }
   function clearHighlight() {
     selected?.element.classList.remove(highlight);
@@ -82,14 +105,26 @@
     const uiParent = document.fullscreenElement || document.documentElement;
     if (ui.host.parentElement !== uiParent) uiParent.append(ui.host);
     const title = names[region];
+    const confirmHint = settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键";
+    const doubleHint = (action, text) => {
+      const value = settings.doubles[action];
+      return value ? `双击 ${R.label(value)} ${text}` : "";
+    };
+    const playerHint = D.isShorts()
+      ? [doubleHint("shortsComments", "展开评论"), doubleHint("shortsCloseComments", "关闭评论"),
+        doubleHint("shortsLike", "点赞"), confirmHint].filter(Boolean).join(" · ")
+      : confirmHint;
     const detail = transient || (region === "search" ? "语音输入后按确认，返回清空并退出" : region === "player"
-      ? settings.bindings.confirm ? `双击 ${R.label(settings.bindings.confirm)} 调出复合面板` : "请在设置中绑定确认键"
+      ? playerHint
+      : region === "shortsComments" ? [doubleHint("shortsCloseComments", "关闭评论"), "↑↓ 翻看评论"].filter(Boolean).join(" · ")
+      : region === "comments" ? "↑↓ 滚动评论 · ←→ 翻页 · 恢复键回到正常播放"
       : region === "guide" ? "↑↓选择导航 · 确认打开 · → 返回节目" : "方向键选片 · 确认播放");
     if (ui.title.textContent !== title) ui.title.textContent = title;
     if (ui.detail.textContent !== detail) ui.detail.textContent = detail;
     ui.host.dataset.region = region;
     ui.host.dataset.confirm = settings.bindings.confirm;
-    const hidden = !settings.enabled || !!document.fullscreenElement || !!sequenceMode || (!settings.showStatus && !transient);
+    const hidden = !settings.enabled || !!document.fullscreenElement || !!sequenceMode || browserActive ||
+      (!settings.showStatus && !transient);
     if (ui.host.hidden !== hidden) ui.host.hidden = hidden;
     renderSequences();
   }
@@ -140,11 +175,15 @@
         .row.selected,.row.selected .danger{color:#0059bd}.row.selected>span{font-weight:600}
         .row.selected kbd{color:#0059bd;border-color:rgba(10,132,255,.22);background:rgba(255,255,255,.65)}
         .row.selected .next{border-color:rgba(10,132,255,.5);background:rgba(255,255,255,.94);box-shadow:0 2px 6px rgba(0,100,210,.1),inset 0 1px 0 #fff}
+        .group.secondary .group-title{color:#777c84}
+        .group.secondary .row{min-height:38px;font-size:14px;color:#737780}
+        .group.secondary kbd{min-width:27px;min-height:27px;font-size:15px;color:#737780;background:rgba(255,255,255,.3)}
+        .group.secondary .row.selected,.group.secondary .row.selected kbd{color:#0059bd}
         .footer{margin-top:18px;font-size:13px;color:#575b63}.empty{color:#646871;font-size:13px}
         @supports not (backdrop-filter:blur(1px)){.panel{background:rgba(247,248,250,.97)}}
         @media(prefers-reduced-motion:reduce){.selection-glass,.row{transition:none}}
         @media(prefers-reduced-transparency:reduce){.panel{background:#f6f7f9}.selection-glass{background:#deebfc}.panel,.selection-glass{-webkit-backdrop-filter:none;backdrop-filter:none}}
-        @media(prefers-contrast:more){.panel{background:#f6f7f9;border-color:#858991}.row{border-color:#b6b9c0}p,.footer,.empty{color:#42464d}.used{opacity:.7}.selection-glass{background:#deebfc;border-color:#0059bd}}
+        @media(prefers-contrast:more){.panel{background:#f6f7f9;border-color:#858991}.row{border-color:#b6b9c0}p,.footer,.empty,.group.secondary .group-title,.group.secondary .row,.group.secondary kbd{color:#42464d}.group.secondary .row.selected,.group.secondary .row.selected kbd{color:#0059bd}.used{opacity:.7}.selection-glass{background:#deebfc;border-color:#0059bd}}
         @media(max-height:580px){.panel{padding:18px}.row{min-height:38px}h2{font-size:21px}.progress{margin:12px 0 6px}.footer{margin-top:12px}}
       `;
       const panel = document.createElement("section");
@@ -170,7 +209,7 @@
     sequenceUi.host.dataset.prefix = sequenceMode.prefix.join(",");
     sequenceUi.host.dataset.candidates = candidates.length;
     sequenceUi.host.dataset.selected = sequenceMode.selected || "";
-    const signature = JSON.stringify([sequenceMode.prefix, sequenceMode.error, settings.sequences, settings.bindings.back, settings.bindings.confirm]);
+    const signature = JSON.stringify([sequenceMode.prefix, sequenceMode.error, settings.sequences, settings.bindings.back, settings.bindings.confirm, D.isWatch(), D.isShorts()]);
     if (sequenceUi.signature === signature) { updateSequenceSelection(); return; }
     sequenceUi.signature = signature;
     const make = (tag, text, className = "") => {
@@ -187,10 +226,10 @@
       sequenceUi.progress.append(make("span", `剩余 ${candidates.length} 项`, "empty"));
     }
     const groups = [];
-    for (const group of R.SEQUENCE_GROUPS) {
+    for (const group of sequenceGroups()) {
       const matches = candidates.filter(item => Object.hasOwn(group.actions, item.action));
       if (!matches.length) continue;
-      const section = make("div", "", "group"); section.dataset.group = group.id;
+      const section = make("div", "", group.secondary ? "group secondary" : "group"); section.dataset.group = group.id;
       section.setAttribute("role", "group"); section.setAttribute("aria-label", group.title);
       const heading = make("div", group.title, "group-title"); heading.setAttribute("aria-hidden", "true");
       section.append(heading);
@@ -354,6 +393,8 @@
     render();
   }
   function ownFocus() {
+    // The browser-mode HUD owns the keyboard; do not pull focus back to the page.
+    if (browserActive) return;
     const active = document.activeElement;
     if (active instanceof HTMLElement && active !== document.body) active.blur();
   }
@@ -388,6 +429,7 @@
     render();
   }
   function cancelPending() {
+    cancelShortsPending();
     intent++;
     pending = null;
     clearTimeout(pendingTimer);
@@ -418,6 +460,8 @@
       available.find((item) => item.id === selected.id) || null;
   }
   function restore(saved, token) {
+    // Route bookkeeping continues, but selection/scroll recovery would fight the browser HUD.
+    if (browserActive) { cancelPending(); return; }
     if (saved?.region === "guide") { void enterGuide(token, saved); return; }
     area = saved?.area === "playlist" ? "playlist" : "recommendations";
     setRegion(saved?.region === "sidebar" && D.isWatch() ? "sidebar" : D.isWatch() || D.isShorts() ? "player" : "list");
@@ -556,11 +600,87 @@
     clearSelection();
     restore(saved, intent);
   }
+  async function toggleGuide(token) {
+    if (!await exitFullscreen() || token !== intent) return;
+    const expanding = !D.guideExpanded();
+    const button = D.guideButton();
+    if (!button) { notice("未找到左侧导航按钮，可稍后重试"); return; }
+    const fromGuide = region === "guide";
+    // Closing the drawer while selecting navigation also returns to the previous area.
+    // Clear the flag first so the return path does not click the hamburger a second time.
+    if (fromGuide && !expanding) { guideOpened = false; backFromGuide(); }
+    button.click();
+    if (fromGuide) guideOpened = expanding;
+    else if (!expanding) guideOpened = false;
+    notice(expanding ? "已展开左侧导航" : "已收起左侧导航");
+    let attempts = 0;
+    const verify = () => {
+      if (token !== intent || !settings.enabled) return;
+      if (D.guideExpanded() === expanding) return;
+      if (++attempts < 16) { setTimeout(verify, 100); return; }
+      notice("左侧导航暂未响应，可稍后重试");
+    };
+    setTimeout(verify, 100);
+  }
   function enterPlayer() {
     if (!D.isWatch() && !D.isShorts()) { notice("当前页面没有播放器"); return; }
     clearSelection();
     setRegion("player");
     ownFocus();
+    remember();
+  }
+  function scrollToTop() {
+    window.scrollTo({ left: 0, top: 0, behavior: "instant" });
+    notice("已滚动到页面顶部");
+    remember();
+  }
+  async function pictureInPictureComments(token) {
+    if (!D.isWatch()) return notice("画中画看评论仅在视频播放页提供");
+    const video = D.video();
+    if (!video) return notice("播放器尚未就绪");
+    if (!await exitFullscreen() || token !== intent) return;
+    if (!document.pictureInPictureElement) {
+      try { await video.requestPictureInPicture(); }
+      catch (_) {
+        const button = D.pipButton();
+        if (!button) return notice("无法开启画中画，请使用播放器画中画按钮");
+        button.click();
+      }
+    }
+    if (token !== intent) return;
+    clearSelection();
+    setRegion("comments");
+    ownFocus();
+    notice("正在定位评论区…");
+    let lastProbe = 0;
+    waitFor(() => {
+      const target = D.comments();
+      if (!target) {
+        // Scrolling near the bottom makes YouTube mount the lazy-loaded comments section.
+        if (Date.now() - lastProbe > 400) {
+          lastProbe = Date.now();
+          window.scrollTo({ left: 0, top: document.documentElement.scrollHeight, behavior: "instant" });
+        }
+        return false;
+      }
+      window.scrollTo({ left: 0, top: Math.max(0, scrollY + target.getBoundingClientRect().top - 72), behavior: "instant" });
+      transient = "";
+      render();
+      remember();
+      return true;
+    }, () => notice("评论区暂未加载，可稍后重试"), token);
+  }
+  async function restorePlayback(token) {
+    if (!D.isWatch() && !D.isShorts()) return notice("当前页面没有播放器");
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    } catch (_) { /* The PiP window may already be closed. */ }
+    if (token !== intent) return;
+    clearSelection();
+    setRegion("player");
+    ownFocus();
+    window.scrollTo({ left: 0, top: 0, behavior: "instant" });
+    notice("已恢复正常播放");
     remember();
   }
   async function togglePlayback() {
@@ -600,6 +720,86 @@
     try { await player.requestFullscreen(); }
     catch (_) { notice("无法进入全屏，请使用播放器全屏按钮"); }
   }
+  function cancelShortsPending() {
+    if (shortsPendingSingle) clearTimeout(shortsPendingSingle.timer);
+    shortsPendingSingle = null;
+  }
+  function replayShortsMove(action) {
+    if (action === "up" || action === "down") {
+      D.shortsNavigationButton(action)?.click();
+      return;
+    }
+    playerMove(action);
+  }
+  function flushShortsPending() {
+    const queued = shortsPendingSingle;
+    if (!queued) return;
+    shortsPendingSingle = null;
+    clearTimeout(queued.timer);
+    replayShortsMove(queued.action);
+  }
+  function scheduleShortsSingle(action, value) {
+    if (shortsPendingSingle) flushShortsPending();
+    const timer = setTimeout(() => {
+      if (shortsPendingSingle?.timer !== timer) return;
+      shortsPendingSingle = null;
+      replayShortsMove(action);
+    }, settings.doubleInterval);
+    shortsPendingSingle = { action, value, timer };
+  }
+  async function openShortsComments(token) {
+    if (!D.isShorts()) return notice("评论快捷键仅用于 Shorts 页面");
+    if (!await exitFullscreen() || token !== intent) return;
+    if (!D.shortsCommentsPanel()) {
+      const button = D.shortsCommentsButton();
+      if (!button) return notice("未找到评论按钮，请稍后重试");
+      button.click();
+    }
+    notice("正在打开评论…");
+    waitFor(() => {
+      if (!D.shortsCommentsPanel()) return false;
+      clearSelection();
+      setRegion("shortsComments");
+      D.focusShortsComments();
+      transient = "";
+      render();
+      remember();
+      return true;
+    }, () => notice("评论区暂未打开，请稍后重试"), token);
+  }
+  function closeShortsComments() {
+    if (!D.isShorts()) { notice("评论快捷键仅用于 Shorts 页面"); return; }
+    const panel = D.shortsCommentsPanel();
+    if (!panel) {
+      if (region === "shortsComments") setRegion("player");
+      notice("评论未打开");
+      return;
+    }
+    const close = D.shortsCommentsCloseButton();
+    if (close) close.click();
+    else {
+      const button = D.shortsCommentsButton();
+      if (button) button.click();
+      else {
+        const escape = new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true });
+        synthetic.add(escape);
+        (document.activeElement || panel).dispatchEvent(escape);
+      }
+    }
+    clearSelection();
+    setRegion("player");
+    ownFocus();
+    notice("已关闭评论");
+    remember();
+  }
+  function likeShorts() {
+    if (!D.isShorts()) { notice("点赞快捷键仅用于 Shorts 页面"); return; }
+    const button = D.shortsLikeButton();
+    if (!button) { notice("未找到点赞按钮，请稍后重试"); return; }
+    if (D.shortsLiked(button)) { notice("已点赞"); return; }
+    button.click();
+    notice("已点赞");
+  }
   function playerMove(action) {
     const video = D.video();
     if (!video) return notice("播放器尚未就绪");
@@ -615,6 +815,22 @@
     video.currentTime = Math.max(start, Math.min(end, video.currentTime + amount));
   }
   function move(action) {
+    if (region === "shortsComments") {
+      if (!D.shortsCommentsPanel()) { setRegion("player"); notice("评论已关闭"); return; }
+      // ← / → are reserved for the close double; only ↑↓ scroll the comment list.
+      if (action !== "up" && action !== "down") return;
+      const scroller = D.shortsCommentsScroller();
+      if (!scroller) return;
+      const step = Math.max(160, Math.round((scroller.clientHeight || innerHeight) * 0.4));
+      scroller.scrollBy({ top: (action === "down" ? 1 : -1) * step, behavior: "instant" });
+      return;
+    }
+    if (region === "comments") {
+      const page = action === "left" || action === "right";
+      const step = Math.max(160, Math.round(innerHeight * (page ? 0.85 : 0.4)));
+      window.scrollBy({ top: (action === "down" || action === "right" ? 1 : -1) * step, behavior: "instant" });
+      return;
+    }
     const list = items();
     if (region === "guide") {
       if (action === "right") return backFromGuide();
@@ -640,6 +856,7 @@
     if (action === "down" && nextItem(list, next.element, "ArrowDown").element === next.element) D.scrollForMore(next.element);
   }
   async function confirm() {
+    if (region === "comments" || region === "shortsComments") return;
     if (region === "player") return togglePlayback();
     if (region === "search") {
       const input = D.searchInput();
@@ -694,21 +911,30 @@
       if (result?.ok === false) notice(action === "closeTab" ? "无法关闭当前标签页，请重试" : "无法刷新页面，请重试");
       return;
     }
+    if (action === "shortsComments") return openShortsComments(token);
+    if (action === "shortsCloseComments") return closeShortsComments();
+    if (action === "shortsLike") return likeShorts();
     if (["up", "down", "left", "right"].includes(action)) return region === "player" ? playerMove(action) : move(action);
     if (action === "search") return enterSearch(token);
     if (action === "home") return goHome(token);
     if (action === "sidebar") return enterSidebar(token);
     if (action === "guide") return enterGuide(token);
+    if (action === "toggleGuide") return toggleGuide(token);
     if (action === "player") return enterPlayer();
     if (action === "confirm") return confirm();
     if (action === "togglePlayback") return togglePlayback();
     if (["mute", "captions", "theater", "playerSettings"].includes(action)) return playerFeature(action, token);
     if (action === "fullscreen") return fullscreen();
+    if (action === "pipComments") return pictureInPictureComments(token);
+    if (action === "restorePlayback") return restorePlayback(token);
+    if (action === "scrollTop") return scrollToTop();
     if (action === "historyBack") return historyBack();
     if (action === "back") {
       if (region === "search") return backFromSearch();
       if (document.fullscreenElement) return exitFullscreen();
       if (region === "guide") return backFromGuide();
+      if (region === "shortsComments") return closeShortsComments();
+      if (region === "comments") return restorePlayback(token);
       if (region === "sidebar") return enterPlayer();
       return historyBack();
     }
@@ -721,7 +947,14 @@
   }
   window.addEventListener("keydown", (event) => {
     if (synthetic.has(event)) return;
+    // browser.js owns every key while the global mode is active.
+    if (browserActive) return;
     if (D.routeKey() !== route) void enterRoute();
+    const pressedChord = R.chord(event);
+    if (shortsPendingSingle) {
+      if (event.isComposing || composing || !settings.enabled) cancelShortsPending();
+      else if (pressedChord && pressedChord !== shortsPendingSingle.value) flushShortsPending();
+    }
     if (event.isComposing || composing || event.keyCode === 229 || event.key === "Process") {
       cancelConfirmation(); leaveSequences(); matcher.reset(); logEvent(event); return;
     }
@@ -735,16 +968,23 @@
       searchReturn = snapshot(); cancelPending(); setRegion("search");
     }
     const inSearch = atSearch && region === "search";
-    let action = matcher.match(event, settings, region);
+    let action = matcher.match(event, settings, region, D.isShorts() ? "shorts" : "watch");
     if (event.repeat && R.resolve(settings, R.chord(event)) === "confirm") action = "confirm";
     logEvent(event, action);
     if (action !== "confirm" || event.defaultPrevented) cancelConfirmation();
     if (!settings.enabled || !action) return;
+    // The global browser mode is entered by browser.js; this is only a fallback if it is absent.
+    // Page controls belong to browser.js too: outside the mode, keep Tab, Backspace and the
+    // locate-input chord native instead of swallowing them here.
+    if (action === "browser" || action === "focusMode" || action === "focusInput" ||
+      action === "browserClose") return;
     if (event.defaultPrevented) return;
-    if (D.editing(event.target) && event.key?.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    // A focused scrollbar/scroller is Chrome's focusable scroller, not a text editor.
+    const editing = D.editing(event.target) && !D.scrollFocus(event.target);
+    if (editing && event.key?.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) {
       matcher.reset(); return;
     }
-    if (D.editing(event.target) && !atSearch && action !== "search") { matcher.reset(); cancelPending(); return; }
+    if (editing && !atSearch && action !== "search") { matcher.reset(); cancelPending(); return; }
     if (inSearch && ["up", "down", "left", "right"].includes(action)) return;
     if (inSearch && action === "confirm" && performance.now() - compositionEnded < 80) {
       cancelConfirmation(); consume(event); return;
@@ -757,10 +997,29 @@
         synthetic.add(escape);
         (document.activeElement || dialog).dispatchEvent(escape);
       }
-      if (["search", "sidebar", "guide", "player"].includes(action)) notice("请先用返回键关闭页面弹窗");
+      if (["search", "sidebar", "guide", "toggleGuide", "player"].includes(action)) notice("请先用返回键关闭页面弹窗");
       matcher.reset();
       cancelConfirmation();
       return;
+    }
+    // Shorts uses the arrows natively (switch video / seek). When a Shorts double sits on one of
+    // them, hold the first press for the double interval so the double tap can act without first
+    // switching or seeking; replay the plain direction if no second tap arrives. The matcher
+    // reports the first press as the direction and only the second one as the double action.
+    if (settings.enabled && D.isShorts() && region === "player" && pressedChord) {
+      const doubleAction = R.SHORTS_DOUBLE_ACTIONS.find(name => settings.doubles[name] === pressedChord);
+      const single = R.resolve(settings, pressedChord);
+      if (doubleAction && ["up", "down", "left", "right"].includes(single)) {
+        if (event.repeat) { consume(event); return; }
+        if (action === doubleAction) {
+          // Second tap: drop the queued direction and fall through to the double action.
+          if (shortsPendingSingle?.value === pressedChord) cancelShortsPending();
+        } else {
+          consume(event);
+          scheduleShortsSingle(single, pressedChord);
+          return;
+        }
+      }
     }
     if (D.isShorts() && region === "player" && ["up", "down", "left", "right"].includes(action)) return;
     consume(event);
@@ -796,15 +1055,20 @@
     logEvent(e);
   }, true);
   window.addEventListener("pointerdown", (event) => {
-    cancelConfirmation(); leaveSequences();
-    if (!settings.enabled || !D.editing(event.target)) return;
+    cancelConfirmation(); cancelShortsPending(); leaveSequences();
+    if (!settings.enabled || !D.editing(event.target) || D.scrollFocus(event.target)) return;
     cancelPending(); matcher.reset();
     if (event.target === D.searchInput() && region !== "search") { searchReturn = snapshot(); setRegion("search"); }
   }, true);
   window.addEventListener("focusin", (event) => {
+    if (browserActive) { tabFocus = false; return; }
+    const scroller = settings.enabled && D.scrollFocus(event.target);
+    // Give the focus back before the browser starts treating arrow keys as native scrolling.
+    // Shorts comments deliberately keep focus so ↑↓ scroll the comment list.
+    if (scroller && !tabFocus && region !== "shortsComments") ownFocus();
     if (settings.enabled && tabFocus && event.target === D.searchInput() && region !== "search") {
       searchReturn = snapshot(); cancelPending(); setRegion("search");
-    } else if (settings.enabled && D.editing(event.target) && event.target !== D.searchInput()) {
+    } else if (settings.enabled && !scroller && D.editing(event.target) && event.target !== D.searchInput()) {
       cancelConfirmation(); cancelPending(); matcher.reset();
     }
     tabFocus = false;
@@ -812,11 +1076,16 @@
   document.addEventListener("fullscreenchange", render);
   window.addEventListener("popstate", () => void enterRoute(true));
   window.addEventListener("pageshow", (event) => { if (event.persisted) void enterRoute(true, true); });
-  window.addEventListener("blur", () => { cancelConfirmation(); leaveSequences(); matcher.reset(); consumedKeys.clear(); });
+  window.addEventListener("blur", () => { cancelConfirmation(); cancelShortsPending(); leaveSequences(); matcher.reset(); consumedKeys.clear(); });
   window.addEventListener("pagehide", () => { cancelConfirmation(); leaveSequences(); void remember(true); cancelPending(); });
-  document.addEventListener("yt-navigate-start", () => { cancelConfirmation(); leaveSequences(); void remember(true); });
+  document.addEventListener("yt-navigate-start", () => {
+    cancelConfirmation(); cancelShortsPending(); leaveSequences(); matcher.reset(); void remember(true);
+  });
   document.addEventListener("yt-navigate-finish", () => void enterRoute());
-  window.addEventListener("scroll", () => { if (!pending && D.routeKey() === route) remember(); }, true);
+  window.addEventListener("scroll", () => {
+    if (settings.enabled && region !== "shortsComments" && D.scrollFocus(document.activeElement)) ownFocus();
+    if (!pending && D.routeKey() === route) remember();
+  }, true);
   window.addEventListener("resize", () => { if (pending) tickPending(); updateSequenceSelection(); });
   new MutationObserver(() => {
     if (mutationTimer) return;
@@ -827,7 +1096,7 @@
         const saved = { ...(lastSnapshot || snapshot()), id: selected.id, index: selectedIndex };
         clearSelection();
         if (!pending && !sequenceMode && settings.enabled && selectionRegions.includes(region) &&
-          (!D.editing(document.activeElement) || document.activeElement === D.searchInput())) restore(saved, intent);
+          (!D.editing(document.activeElement) || D.scrollFocus(document.activeElement) || document.activeElement === D.searchInput())) restore(saved, intent);
       }
       if (pending) tickPending();
       render();
@@ -845,6 +1114,22 @@
       render();
     }
   });
+  // browser.js (which loads first) drives global mode entry. It calls back here so an entry press
+  // also cancels a delayed single confirm, closes the command panel it just opened, and so page
+  // recovery pauses while the browser HUD owns input.
+  globalThis.__youtubeRemoteHost = {
+    entryAllowed() { return settings.enabled && !sequenceMode && !composing; },
+    entryPressed() { cancelConfirmation(); cancelPending(); matcher.reset(); leaveSequences(); },
+    activate() {
+      browserActive = true;
+      cancelConfirmation();
+      cancelPending();
+      matcher.reset();
+      leaveSequences();
+      render();
+    },
+    deactivate() { browserActive = false; render(); }
+  };
   void chrome.storage.local.get(["remoteSettings", "diagnosticsUntil"]).then((stored) => {
     settings = R.normalize(stored.remoteSettings);
     diagnosticsUntil = Number(stored.diagnosticsUntil) || 0;

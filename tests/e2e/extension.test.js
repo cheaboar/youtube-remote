@@ -231,6 +231,51 @@ test("entering a collapsed playlist expands it before selecting a video", async 
   await page.close();
 });
 
+test("a focused scrollbar/scroller cannot strand remote navigation", async () => {
+  const page = await pageAt("/"); await selected(page, "v0");
+  // Chrome makes scroll containers keyboard-focusable: clicking or dragging a scrollbar focuses the scroller.
+  const focusScroller = (id, attributes) => page.evaluate(({ id, attributes }) => {
+    const box = document.createElement("div");
+    box.id = id;
+    for (const [name, value] of Object.entries(attributes)) box.setAttribute(name, value);
+    box.tabIndex = 0;
+    box.style.cssText = "position:fixed;right:20px;top:120px;width:180px;height:180px;overflow:auto;background:#fff;z-index:5";
+    box.innerHTML = '<div style="height:900px">scrollable content</div>';
+    document.body.append(box);
+    box.focus();
+  }, { id, attributes });
+  const activeId = () => page.evaluate(() => document.activeElement.id);
+  const selectedId = () => page.evaluate(() => document.querySelector(".youtube-keyboard-selected")?.dataset.video);
+
+  await focusScroller("plain-scroller", {});
+  await press(page, "ArrowRight"); await selected(page, "v1");
+  assert.equal(await activeId(), "");
+
+  // Scrollbars inside editor-like shells (suggestion lists, comment panels) must not be mistaken for typing.
+  await focusScroller("combo-scroller", { role: "combobox" });
+  await press(page, "ArrowRight"); await selected(page, "v2");
+  assert.equal(await activeId(), "");
+  // Even when the browser keeps the scroller focused, the key must still reach the remote.
+  await page.evaluate(() => {
+    const box = document.querySelector("#combo-scroller");
+    box.focus();
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", code: "ArrowLeft", bubbles: true, cancelable: true }));
+  });
+  await selected(page, "v1");
+
+  // Real editors keep their native keys and their focus.
+  await page.evaluate(() => {
+    const editor = document.createElement("div");
+    editor.id = "editor"; editor.setAttribute("contenteditable", "true");
+    editor.style.cssText = "position:fixed;left:20px;top:120px;width:180px;height:180px;overflow:auto;background:#fff;z-index:5";
+    editor.textContent = "comment"; document.body.append(editor); editor.focus();
+  });
+  await press(page, "ArrowRight");
+  assert.equal(await activeId(), "editor");
+  assert.equal(await selectedId(), "v1");
+  await page.close();
+});
+
 test("settings recording, conflict detection, live remapping and redacted diagnostics", async () => {
   const page = await pageAt("/"); await selected(page, "v0");
   const options = await context.newPage(); await options.goto(`chrome-extension://${extensionId}/options.html`);
@@ -262,6 +307,10 @@ test("settings recording, conflict detection, live remapping and redacted diagno
   assert.match(await popup.locator('#shortcuts').textContent(), /Alt\+Shift\+H/);
   assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth), 348);
   assert.ok(await popup.evaluate(() => document.documentElement.scrollHeight <= 600));
+  await popup.setViewportSize({ width: 200, height: 600 });
+  assert.equal(await popup.evaluate(() => document.documentElement.getBoundingClientRect().width), 348);
+  assert.equal(await popup.evaluate(() => document.body.getBoundingClientRect().width), 348);
+  await popup.setViewportSize({ width: 348, height: 600 });
   await popup.screenshot({ path: "test-results/popup.png" });
   await page.goto('https://www.youtube.com/results?search_query=popup-home'); await selected(page, 'v0');
   await page.bringToFront();
