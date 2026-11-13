@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>演示视频 - 哔哩哔哩</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#fff;color:#18191c;font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .nav{height:56px;display:flex;align-items:center;gap:18px;padding:0 24px;border-bottom:1px solid #eef0f2;font-weight:600}
+  .wrap{display:grid;grid-template-columns:1fr 320px;gap:24px;padding:20px 24px}
+  #bilibili-player{position:relative;width:100%;aspect-ratio:16/9;background:#0b0b0d;border-radius:10px;overflow:hidden}
+  #bilibili-player video{width:100%;height:100%;object-fit:cover}
+  .ctrlbar{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;gap:14px;
+    padding:0 14px;background:linear-gradient(transparent,rgba(0,0,0,.72));color:#fff;font-size:12px}
+  .ctrlbar .grow{flex:1}
+  .ctrlbar span{padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.14)}
+  .ctrlbar i{font-style:normal;padding:4px 8px;border-radius:6px;background:rgba(255,255,255,.14)}
+  h1{font-size:20px;margin:16px 0 8px}
+  .meta{color:#9499a0;font-size:13px}
+  .toolbar{display:flex;gap:10px;margin:14px 0}
+  .toolbar button{border:0;background:#f1f2f3;color:#18191c;padding:8px 16px;border-radius:8px;font-size:13px}
+  .toolbar button.on{background:#ff6699;color:#fff}
+  .comment{height:280px;margin-top:18px;background:#f6f7f8;border-radius:10px;padding:16px;color:#9499a0}
+  .rail-title{font-weight:600;margin-bottom:10px}
+  .rail-card{display:flex;gap:10px;margin-bottom:12px}
+  .rail-thumb{width:112px;height:64px;border-radius:6px;background:#e3e5e7;flex:none}
+  .rail-text{font-size:13px;line-height:1.4}
+  .rail-text small{display:block;color:#9499a0;margin-top:4px}
+</style></head><body>
+<div class="nav">哔哩哔哩 <span style="color:#9499a0;font-weight:400">首页 &nbsp; 番剧 &nbsp; 直播 &nbsp; 游戏中心</span></div>
+<div class="wrap">
+  <div>
+    <div id="bilibili-player" class="bpx-player-container">
+      <video muted playsinline poster="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1280' height='720'><rect width='1280' height='720' fill='%230d1117'/><circle cx='640' cy='360' r='64' fill='%23ff6699'/><path d='M622 328 L672 360 L622 392 Z' fill='white'/></svg>"></video>
+      <div class="ctrlbar">
+        <span>▶</span><i>00:12 / 09:55</i><span class="grow"></span>
+        <i>倍速</i><i>字幕</i><span class="bpx-player-ctrl-web">网页全屏</span>
+        <i class="bui-danmaku-switch-input">弹幕</i><i>音量</i><i class="bpx-player-ctrl-full">全屏</i>
+      </div>
+    </div>
+    <h1>演示视频：用遥控器在 B站 选片与播放</h1>
+    <div class="meta">12.3 万播放 · 2300 弹幕 · 2026-11-13</div>
+    <div class="toolbar">
+      <button class="video-like on">👍 点赞 1.2 万</button>
+      <button class="video-coin">🪙 投币 3200</button>
+      <button class="video-fav">⭐ 收藏 8600</button>
+      <button class="video-share-wrap">↗ 分享</button>
+    </div>
+    <div id="commentapp" class="comment">评论区（演示页面）</div>
+  </div>
+  <aside>
+    <div class="rail-title">相关推荐</div>
+    <div class="video-page-card-small rail-card"><div class="rail-thumb"></div><div class="rail-text">遥控器按键映射入门<small>3.4 万播放</small></div></div>
+    <div class="video-page-card-small rail-card"><div class="rail-thumb"></div><div class="rail-text">电视遥控器改造全记录<small>1.1 万播放</small></div></div>
+    <div class="video-page-card-small rail-card"><div class="rail-thumb"></div><div class="rail-text">用键盘逛视频网站的一天<small>8600 播放</small></div></div>
+  </aside>
+</div>
+</body></html>

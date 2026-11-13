@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>隐私政策 — YouTube / 抖音 / B站 / 优酷 键盘选片</title>
+<style>
+  body{max-width:760px;margin:48px auto;padding:0 24px;color:#1d2129;font:16px/1.75 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  h1{font-size:28px;margin:0 0 6px}
+  h2{font-size:19px;margin:34px 0 8px}
+  .meta{color:#86909c;font-size:14px;margin-bottom:28px}
+  ul{padding-left:22px}
+  code{background:#f2f3f5;border-radius:4px;padding:1px 5px;font-size:14px}
+</style></head><body>
+<h1>隐私政策</h1>
+<div class="meta">YouTube / 抖音 / B站 / 优酷 键盘选片 · 版本 2.0.0 · 最后更新：2026 年 11 月 13 日</div>
+
+<p>本扩展是一款本地运行的键盘／蓝牙遥控器辅助工具。它不设账号体系，不含统计、广告或任何第三方 SDK，也不把数据发送到开发者或第三方的服务器。</p>
+
+<h2>扩展会处理哪些数据</h2>
+<ul>
+  <li><strong>键盘按键</strong>：在 YouTube、抖音、哔哩哔哩、优酷页面上读取按键事件，用于移动选中项、播放视频和执行组合键。按键不会离开浏览器。</li>
+  <li><strong>扩展设置</strong>：按键映射、双击间隔、组合键、常用网站列表和 Windows 系统按键配置，保存在浏览器本地的 <code>chrome.storage.local</code>。</li>
+  <li><strong>当前标签页信息</strong>：标签页标题、网址和图标，仅在浏览器全局模式的标签切换菜单和「常用网站」中即时使用，并以本地存储的形式保留你主动添加的条目。</li>
+  <li><strong>页面内容</strong>：只读取渲染选片和播放所需的页面结构（视频卡片、播放器控件），不读取、不保存、不上传页面文字、评论、账号信息或播放记录。</li>
+</ul>
+
+<h2>权限用途</h2>
+<ul>
+  <li><code>storage</code>：保存上述设置与常用网站。</li>
+  <li><code>tabs</code>：浏览器全局模式切换标签、读取标题与图标、在关闭标签前准备恢复页。</li>
+  <li><code>scripting</code>：为已打开的页面补注入内容脚本，使设置变更立即生效。</li>
+  <li>站点访问权限 <code>youtube.com</code>、<code>douyin.com</code>、<code>bilibili.com</code>、<code>youku.com</code>：在这四个网站提供选片与播放功能。</li>
+  <li>可选的全站访问权限 <code>http://*/*</code>、<code>https://*/*</code>：仅当你主动点击「启用浏览器全局遥控」并确认授权后生效，用于在普通网页上响应方向键、滚动和焦点移动。可随时在扩展详情页撤销，撤销后模式立即退出。</li>
+</ul>
+
+<h2>数据共享与出售</h2>
+<p>不收集、不传输、不出售、不共享任何个人数据。扩展没有远程代码，所有逻辑都包含在安装包内。</p>
+
+<h2>数据删除</h2>
+<p>所有数据都保存在你自己的浏览器中。卸载扩展或在 <code>edge://extensions</code> / <code>chrome://extensions</code> 中清除扩展数据，即可全部删除。</p>
+
+<h2>联系我们</h2>
+<p>问题与建议请提交至项目仓库：<a href="https://github.com/cheaboar/youtube-remote">github.com/cheaboar/youtube-remote</a>。</p>
+</body></html>

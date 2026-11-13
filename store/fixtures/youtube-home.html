@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>YouTube</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0f0f;color:#f1f1f1;font:14px/1.5 Roboto,"Microsoft YaHei",sans-serif}
+  header{position:sticky;top:0;z-index:3;height:56px;display:flex;align-items:center;gap:20px;padding:0 20px;background:#0f0f0f}
+  .logo{font-weight:700;font-size:19px;letter-spacing:-.5px}
+  .logo b{background:#f00;color:#fff;border-radius:4px;padding:1px 5px;margin-right:6px;font-size:14px}
+  input{width:380px;height:36px;border-radius:18px;border:1px solid #303030;background:#121212;color:#f1f1f1;padding:0 16px;font:inherit}
+  .avatar{width:30px;height:30px;border-radius:50%;background:#3ea6ff;color:#0f0f0f;display:grid;place-items:center;font-weight:700;margin-left:auto}
+  nav{display:flex;gap:12px;padding:10px 20px;border-bottom:1px solid #272727;overflow:hidden}
+  nav span{background:#272727;border-radius:8px;padding:6px 12px;font-size:13px;white-space:nowrap}
+  nav span.on{background:#f1f1f1;color:#0f0f0f;font-weight:600}
+  #grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px 16px;padding:22px 24px}
+  ytd-rich-item-renderer{display:block}
+  ytd-rich-item-renderer a{display:block;color:inherit;text-decoration:none}
+  .thumb{position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;
+    background:linear-gradient(135deg,#1f3b63,#3c6ea5)}
+  .thumb.c2{background:linear-gradient(135deg,#3b2a4d,#7a4f8a)}
+  .thumb.c3{background:linear-gradient(135deg,#123a2f,#2f7a63)}
+  .thumb.c4{background:linear-gradient(135deg,#4a2b1f,#9a5a33)}
+  .thumb::after{content:"▶";position:absolute;inset:0;display:grid;place-items:center;font-size:38px;color:rgba(255,255,255,.82)}
+  .dur{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.78);border-radius:4px;padding:1px 5px;font-size:12px}
+  .t{font-weight:600;font-size:14px;margin:10px 0 4px;line-height:1.35}
+  .ch{color:#aaa;font-size:12.5px}
+</style></head><body>
+<header><span class="logo"><b>▶</b>YouTube</span><input placeholder="搜索" aria-label="搜索"><span class="avatar">遥</span></header>
+<nav><span class="on">全部</span><span>音乐</span><span>纪录片</span><span>遥控器</span><span>直播</span><span>键盘</span><span>编程</span><span>游戏</span></nav>
+<div id="grid"></div>
+<script>
+  const items = [
+    ["用蓝牙遥控器控制电脑播放视频","科技小站 · 12 万次观看","18:42",""],
+    ["客厅 HTPC 改造：从遥控到键盘","居家实验室 · 8.6 万次观看","24:10","c2"],
+    ["键盘党的一周：不用鼠标能做什么","效率研究所 · 5.4 万次观看","11:07","c3"],
+    ["B站与 YouTube 的遥控体验对比","双屏观察 · 3.1 万次观看","09:35","c4"],
+    ["4K 自然纪录片：山谷晨雾","自然频道 · 96 万次观看","52:18","c3"],
+    ["老式电视遥控器拆解与维修","拆机日记 · 7.2 万次观看","15:26","c4"],
+    ["我用方向键写了三个月代码","终端生活 · 2.8 万次观看","21:44",""],
+    ["浏览器全局快捷键的隐藏玩法","前端小课 · 4.6 万次观看","13:52","c2"]
+  ];
+  document.querySelector("#grid").innerHTML = items.map(([t,ch,d,c]) =>
+    `<ytd-rich-item-renderer><a href="/watch?v=demo"><div class="thumb ${c}"><span class="dur">${d}</span></div>
+      <div class="t">${t}</div><div class="ch">${ch}</div></a></ytd-rich-item-renderer>`).join("");
+</script>
+</body></html>

@@ -3,3 +3,4 @@ test-results/
 .gstack/
 native/remote-keys.json
 native/remote-keys.log
+dist/
