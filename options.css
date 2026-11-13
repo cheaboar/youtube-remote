@@ -82,6 +82,25 @@ button:focus-visible, input:focus-visible { outline: 2px solid #747b89; outline-
 #favorite-feedback.error { color: #a53c49; }
 @media (max-width: 700px) { .favorite-row { grid-template-columns: 20px 1fr; } .favorite-row label, .favorite-actions { grid-column: 2; } }
 
+.system-profiles { display: grid; gap: 14px; margin-top: 18px; }
+.system-profile { display: grid; gap: 12px; padding: 16px; border: 1px solid rgba(255, 255, 255, .9); border-radius: 18px; background: rgba(255, 255, 255, .4); }
+.system-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.system-head label { display: grid; flex: 1 1 150px; gap: 5px; min-width: 0; font-size: 12px; color: #575b63; }
+.system-head label.system-enabled { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; padding-bottom: 10px; }
+.system-head input[type="text"], .system-mapping input[type="text"] { width: 100%; min-width: 0; padding: 9px; border: 1px solid rgba(110, 118, 132, .25); border-radius: 10px; background: rgba(255, 255, 255, .65); color: #34363b; font: inherit; }
+.system-head .remove, .system-mapping .remove { flex: 0 0 auto; color: #7d5960; }
+.system-mappings { display: grid; gap: 2px; }
+.system-mapping { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 1px solid rgba(72, 78, 90, .09); }
+.system-mapping:last-child { border-bottom: 0; }
+.system-mapping input[type="text"] { flex: 1 1 180px; }
+.system-mapping .record { min-width: 104px; }
+.system-mapping .record.recording { border-color: #747b89; background: rgba(224, 228, 235, .9); box-shadow: 0 0 0 3px rgba(116, 123, 137, .16), inset 0 1px 0 #fff; }
+.system-arrow { flex: 0 0 auto; color: #60646c; text-align: center; }
+#system-add:disabled, #system-save:disabled, #system-download:disabled, .system-profile button:disabled { opacity: .45; cursor: default; }
+#system-feedback { min-height: 22px; margin-bottom: 0; }
+#system-feedback.error { color: #a53c49; }
+@media (max-width: 700px) { .system-head label { flex-basis: 100%; } }
+
 .table-wrap { overflow: auto; background: rgba(255, 255, 255, .4); border: 1px solid rgba(255, 255, 255, .9); border-radius: 16px; }
 table { border-collapse: collapse; width: 100%; font-size: 12px; text-align: left; }
 th, td { padding: 12px; border-bottom: 1px solid rgba(72, 78, 90, .09); vertical-align: top; }

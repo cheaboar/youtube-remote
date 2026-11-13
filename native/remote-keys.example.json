@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "enabled": true,
+  "profiles": [
+    {
+      "name": "PotPlayer",
+      "process": "PotPlayerMini64.exe",
+      "title": "",
+      "bindings": [
+        { "source": "ArrowLeft", "target": "Ctrl+ArrowLeft" },
+        { "source": "ArrowRight", "target": "Ctrl+ArrowRight" },
+        { "source": "ArrowUp", "target": "AudioVolumeUp" },
+        { "source": "ArrowDown", "target": "AudioVolumeDown" },
+        { "source": "Enter", "target": "Space" }
+      ]
+    },
+    {
+      "name": "PowerPoint",
+      "process": "POWERPNT.EXE",
+      "title": "",
+      "bindings": [
+        { "source": "ArrowRight", "target": "PageDown" },
+        { "source": "ArrowLeft", "target": "PageUp" },
+        { "source": "Enter", "target": "F5" }
+      ]
+    },
+    {
+      "name": "抖音电脑版",
+      "process": "douyin.exe",
+      "title": "",
+      "bindings": [
+        { "source": "Enter", "target": "Space" },
+        { "source": "Home", "target": "KeyZ" },
+        { "source": "PageUp", "target": "ArrowUp" },
+        { "source": "PageDown", "target": "ArrowDown" }
+      ]
+    },
+    {
+      "name": "音乐播放器（按窗口标题匹配，示例）",
+      "process": "",
+      "title": "Spotify",
+      "bindings": [
+        { "source": "ArrowRight", "target": "MediaTrackNext" },
+        { "source": "ArrowLeft", "target": "MediaTrackPrevious" },
+        { "source": "Enter", "target": "MediaPlayPause" }
+      ]
+    }
+  ]
+}

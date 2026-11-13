@@ -11,8 +11,10 @@ let context, worker, extensionId, profile, extensionDir, youtubeFixture, siteFix
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const errors = [];
 const root = path.resolve(__dirname, "../..");
-const EXTENSION_FILES = ["background.js", "browser.js", "content.js", "content.css", "navigation.js", "remote.js",
-  "recovery.html", "recovery.js", "recovery.css", "youtube.js", "options.html", "options.css", "options.js", "popup.html", "popup.css", "popup.js", "manifest.json"];
+const EXTENSION_FILES = ["background.js", "browser.js", "command-panel.js", "content.js", "content.css", "douyin-content.js", "douyin.js",
+  "bilibili.js", "youku.js", "video-site-content.js",
+  "navigation.js", "remote.js", "recovery.html", "recovery.js", "recovery.css", "youtube.js",
+  "options.html", "options.css", "options.js", "popup.html", "popup.css", "popup.js", "manifest.json"];
 
 // The optional host permission cannot be granted from a headless browser prompt, so the suite runs
 // the production scripts from a temporary copy whose manifest already grants both web schemes.

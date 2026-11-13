@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YouTube 键盘选片",
+  "name": "YouTube / 抖音 / B站 / 优酷 键盘选片",
   "version": "2.0.0",
-  "description": "使用方向键选择 YouTube 节目并按 Enter 播放，双击 Home 可切换浏览器全局遥控。",
+  "description": "使用方向键选择 YouTube、抖音、哔哩哔哩或优酷网页的视频并按 Enter 播放；双击 Enter 打开指令面板，三击进入浏览器全局遥控。",
   "minimum_chrome_version": "119",
   "permissions": ["storage", "tabs", "scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
@@ -15,7 +15,7 @@
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
   "action": {
-    "default_title": "YouTube 键盘选片：快捷键说明",
+    "default_title": "YouTube / 抖音 / B站 / 优酷 键盘选片：快捷键说明",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -34,6 +34,42 @@
     {
       "matches": ["https://www.youtube.com/*"],
       "js": ["remote.js", "navigation.js", "youtube.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.douyin.com/*"],
+      "js": ["remote.js", "browser.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.douyin.com/*"],
+      "js": ["remote.js", "navigation.js", "douyin.js", "command-panel.js", "douyin-content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.bilibili.com/*"],
+      "js": ["remote.js", "browser.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.bilibili.com/*"],
+      "js": ["remote.js", "navigation.js", "bilibili.js", "command-panel.js", "video-site-content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.youku.com/*", "https://v.youku.com/*"],
+      "js": ["remote.js", "browser.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.youku.com/*", "https://v.youku.com/*"],
+      "js": ["remote.js", "navigation.js", "youku.js", "command-panel.js", "video-site-content.js"],
       "css": ["content.css"],
       "run_at": "document_start"
     }

@@ -3,10 +3,16 @@
   const R = globalThis.YouTubeRemote;
   if (!R) return;
   const top = window === window.top;
-  // YouTube spends a double tap of the confirm key on its command panel, so the browser entry
-  // needs a third tap there; every other site enters on a double tap.
+  // YouTube and the playback pages (Douyin, Bilibili, Youku) spend a double tap of the confirm key
+  // on their command panels, so the browser entry needs a third tap there; every other page enters
+  // on a double tap. The check is dynamic because these sites navigate and swap layouts in place.
   const onYouTube = /^https:\/\/www\.youtube\.com\//.test(location.href);
-  const ENTRY_TAPS = onYouTube ? 3 : 2;
+  const onDouyinPlayer = () => /^https:\/\/www\.douyin\.com\/(video|note)\//.test(location.href);
+  const onBilibiliPlayer = () => /^https:\/\/www\.bilibili\.com\/video\//.test(location.href);
+  const onYoukuPlayer = () => /^https:\/\/v\.youku\.com\//.test(location.href) ||
+    /^https:\/\/www\.youku\.com\/v_show\//.test(location.href);
+  const onPlaybackPage = () => onDouyinPlayer() || onBilibiliPlayer() || onYoukuPlayer();
+  const entryTaps = () => onYouTube || onPlaybackPage() ? 3 : 2;
   if (globalThis.__remoteBrowserController) { globalThis.__remoteBrowserController.reconnect(); return; }
 
   const settingsChanged = () => void chrome.storage.local.get("remoteSettings").then((stored) => {
@@ -373,16 +379,17 @@
     // The command panel keeps its own key grammar. Only the tap that completes the entry gesture
     // reaches it: on YouTube the second tap opens the panel and the third one enters the mode.
     const panelOpen = !!bridge?.entryAllowed && !bridge.entryAllowed();
-    if (panelOpen && entry.count < ENTRY_TAPS - 1) { entry.reset(); return; }
+    const required = entryTaps();
+    if (panelOpen && entry.count < required - 1) { entry.reset(); return; }
     const taps = entry.press(event, settings.doubleInterval);
-    if (taps < ENTRY_TAPS) {
+    if (taps < required) {
       // A non-confirm entry key still cancels a delayed single confirm on its first tap.
       if (taps === 1 && chord !== settings.bindings.confirm) bridge?.entryPressed?.();
       return;
     }
     // Sharing the confirm key means the second tap opens the panel and the third one closes it;
     // if no panel is open, this press belongs to the page instead of a stale earlier double tap.
-    if (ENTRY_TAPS === 3 && !panelOpen && chord === settings.bindings.confirm) { entry.reset(); return; }
+    if (required === 3 && !panelOpen && chord === settings.bindings.confirm) { entry.reset(); return; }
     entry.reset();
     consume(event);
     bridge?.entryPressed?.();
