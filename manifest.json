@@ -72,6 +72,18 @@
       "js": ["remote.js", "navigation.js", "youku.js", "command-panel.js", "video-site-content.js"],
       "css": ["content.css"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.google.com/search*", "https://www.google.com.hk/search*"],
+      "js": ["remote.js", "browser.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://www.google.com/search*", "https://www.google.com.hk/search*"],
+      "js": ["remote.js", "google.js", "google-content.js"],
+      "css": ["content.css"],
+      "run_at": "document_start"
     }
   ]
 }

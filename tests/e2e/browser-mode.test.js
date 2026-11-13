@@ -12,7 +12,7 @@ const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 const errors = [];
 const root = path.resolve(__dirname, "../..");
 const EXTENSION_FILES = ["background.js", "browser.js", "command-panel.js", "content.js", "content.css", "douyin-content.js", "douyin.js",
-  "bilibili.js", "youku.js", "video-site-content.js",
+  "bilibili.js", "youku.js", "video-site-content.js", "google.js", "google-content.js",
   "navigation.js", "remote.js", "recovery.html", "recovery.js", "recovery.css", "youtube.js",
   "options.html", "options.css", "options.js", "popup.html", "popup.css", "popup.js", "manifest.json"];
 
@@ -368,13 +368,29 @@ test("entry double tap opens the menu without activating, and Escape returns", a
   await page.close();
 });
 
-test("an open sequence panel keeps Enter for its own commands", async () => {
+test("a human-paced third tap enters even though the panel is already open", async () => {
   const page = await youtubePage("/");
   await press(page, "Enter");
   await press(page, "Enter");
   await page.locator("#youtube-remote-sequences").waitFor({ state: "visible" });
-  // Outside the double interval the third press belongs to the panel, not to the entry gesture.
-  await page.waitForTimeout(500);
+  // The second tap opens the panel; by the time the user sees it and presses again, the double
+  // interval has passed. That last press still completes the three-tap entry.
+  await page.waitForTimeout(600);
+  await press(page, "Enter");
+  await waitHud(page, true);
+  assert.equal(await page.locator("#youtube-remote-sequences").isVisible(), false);
+  await press(page, "Escape");
+  await waitHud(page, false);
+  await page.close();
+});
+
+test("an open sequence panel keeps Enter for its own commands once the entry window passed", async () => {
+  const page = await youtubePage("/");
+  await press(page, "Enter");
+  await press(page, "Enter");
+  await page.locator("#youtube-remote-sequences").waitFor({ state: "visible" });
+  // Past the entry window the press belongs to the panel, not to the entry gesture.
+  await page.waitForTimeout(1500);
   await press(page, "Enter");
   await page.locator("#youtube-remote-sequences").waitFor({ state: "hidden" });
   await page.waitForTimeout(150);
@@ -644,7 +660,7 @@ test("last controlled tab hands off to recovery and reopens its closed URL", asy
   await recovery.waitForURL(/recovery\.html/);
   await closed;
   await recovery.waitForFunction(() => document.body.dataset.ready === "true" && document.body.dataset.group === "common");
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const previous = await recovery.evaluate(() => document.body.dataset.selected);
     await press(recovery, "ArrowDown");
     await recovery.waitForFunction(value => document.body.dataset.selected !== value, previous);

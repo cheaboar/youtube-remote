@@ -1,7 +1,8 @@
 .youtube-keyboard-selected,
 .douyin-keyboard-selected,
 .bilibili-keyboard-selected,
-.youku-keyboard-selected {
+.youku-keyboard-selected,
+.google-keyboard-selected {
   outline: 2px solid rgba(10, 132, 255, 0.88) !important;
   outline-offset: 4px !important;
   border-radius: 14px !important;

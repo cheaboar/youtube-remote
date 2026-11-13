@@ -14,7 +14,7 @@ const BROWSER_INPUTS = ["previousTab", "nextTab", "reload", "back", "forward", "
   "selectionPrevious", "selectionNext", "activateSelected", "escape", "groupPrevious", "groupNext", "cancelConfirm"];
 // The action list opens on the same double tap as the title list, so every page command works with
 // the remote's arrow, confirm and back keys. Actions come first; tabs follow.
-const PAGE_ACTIONS = ["focus", "input", "reload", "close"];
+const PAGE_ACTIONS = ["focus", "input", "googleSearch", "reload", "close"];
 
 function normalizeMode(value) {
   const source = value && typeof value === "object" ? value : {};
@@ -291,7 +291,7 @@ async function getFavorites() {
 async function menuItems(mode, tabs) {
   const group = R.BROWSER_GROUPS.find(g => g.id === mode.menuGroup) || R.BROWSER_GROUPS[0];
   const onRecovery = mode.hostTabId === mode.recoveryTabId && Number.isFinite(mode.recoveryTabId);
-  const pageOnly = new Set(["focus", "input", "scroll", "scrollTop", "scrollBottom", "reload", "close"]);
+  const pageOnly = new Set(["focus", "input", "googleSearch", "scroll", "scrollTop", "scrollBottom", "reload", "close"]);
   const decorate = item => onRecovery && pageOnly.has(item.id)
     ? { ...item, disabled: true, hint: "请先打开网页" } : { ...item };
   if (group.id === "tabs") return tabs.filter(t => !recoveryUrl(t.url)).map(t => ({ id: `tab:${t.id}`, title: t.title || t.url || "标签",
@@ -416,8 +416,8 @@ async function handleInput(message, sender) {
       else if (item.disabled) error = { code: "OPERATION_FAILED" };
       else {
         const id = item.id;
-        if (recovery && ["focus", "input", "scroll", "scrollTop", "scrollBottom", "reload", "close", "favoriteCurrent"].includes(id)) error = { code: "NOT_AUTHORIZED" };
-        else if (["focus", "input", "scroll", "scrollTop", "scrollBottom"].includes(id)) {
+        if (recovery && ["focus", "input", "googleSearch", "scroll", "scrollTop", "scrollBottom", "reload", "close", "favoriteCurrent"].includes(id)) error = { code: "NOT_AUTHORIZED" };
+        else if (["focus", "input", "googleSearch", "scroll", "scrollTop", "scrollBottom"].includes(id)) {
           pageAction = { action: id, sessionId: mode.sessionId, requestId }; mode.phase = "direct"; disarm();
         } else if (id === "reload") { await chrome.tabs.reload(activeTab.id); mode.phase = "direct"; disarm(); }
         else if (id === "close") {

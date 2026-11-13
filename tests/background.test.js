@@ -355,6 +355,8 @@ test("grouped menus reject stale selections and return page actions once", async
   assert.equal(result.state.menuGroup, "common");
   assert.equal(result.state.selectedItemId, "previousRecent");
   result = await input("selectionNext", "m2");
+  assert.equal(result.state.selectedItemId, "googleSearch");
+  result = await input("selectionNext", "m2b");
   assert.equal(result.state.selectedItemId, "scroll");
   assert.equal((await input("activateSelected", "m3", { expectedItemId: "focus" })).error.code, "STALE_SELECTION");
   result = await input("activateSelected", "m4", { expectedItemId: "scroll" });
@@ -422,7 +424,7 @@ test("last tab closes only after authenticated recovery ready and restores its U
   assert.equal((await recoverySend({ type: "remote:browser-state" })).state.activeTabId, recovery.id);
   assert.equal((await recoverySend({ type: "remote:browser-state", token: "fake" })).ok, false);
   await recoverySend({ type: "remote:browser-input", input: "openTitles", requestId: "x6" });
-  for (let i = 0; i < 4; i++) await recoverySend({ type: "remote:browser-input", input: "selectionNext", requestId: `x7-${i}` });
+  for (let i = 0; i < 5; i++) await recoverySend({ type: "remote:browser-input", input: "selectionNext", requestId: `x7-${i}` });
   const restored = await recoverySend({ type: "remote:browser-input", input: "activateSelected", expectedItemId: "restore", requestId: "x8" });
   assert.equal(restored.ok, true);
   assert.equal(worker.store.get("remote:browser-closed")[7].length, 0);

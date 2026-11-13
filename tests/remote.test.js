@@ -294,8 +294,8 @@ test("sequence validation rejects ambiguous prefixes, reserved keys and invalid 
 
 test("Douyin sequences start with left/right, filter by leftmost prefix and end on an exact match", () => {
   const { douyinSequences } = R.cloneDefaults();
-  assert.equal(Object.keys(R.DOUYIN_SEQUENCE_ACTIONS).length, 20);
-  assert.equal(R.douyinSequenceCandidates(douyinSequences, []).candidates.length, 20);
+  assert.equal(Object.keys(R.DOUYIN_SEQUENCE_ACTIONS).length, 21);
+  assert.equal(R.douyinSequenceCandidates(douyinSequences, []).candidates.length, 21);
   assert.ok(Object.values(douyinSequences).every(keys => ["ArrowLeft", "ArrowRight"].includes(keys[0])));
   const rightUp = R.douyinSequenceCandidates(douyinSequences, ["ArrowRight", "ArrowUp"]);
   assert.deepEqual(rightUp.candidates.map(item => item.action), ["fullscreen", "pageFullscreen", "like", "collect"]);

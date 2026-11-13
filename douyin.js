@@ -83,6 +83,41 @@
     return [...result.values()];
   }
 
+  // The left rail (精选 / 推荐 / 关注 …) is Douyin's own navigation. Its entries are links that
+  // carry `from_nav`; the备案 and 下载 links living in the same scroll container do not, which keeps
+  // them out of the remote's selection without depending on hashed class names.
+  const NAV = '[data-e2e="douyin-navigation"]';
+
+  function navIdentity(href) {
+    try {
+      const url = new URL(href, location.href);
+      // `from_nav` marks the rail's own entries; it carries no meaning for identity.
+      url.searchParams.delete("from_nav");
+      url.searchParams.sort();
+      return `${url.hostname}${url.pathname}${url.search}`;
+    } catch (_) { return ""; }
+  }
+
+  // The currently opened entry is marked only by a hashed class, so the caller matches the
+  // rail's identity against the live URL instead of trusting that class name.
+  function navCards() {
+    const root = [...document.querySelectorAll(NAV)].find(visible);
+    if (!root) return [];
+    const result = new Map();
+    for (const link of root.querySelectorAll('a[href*="from_nav"]')) {
+      const id = navIdentity(link.getAttribute("href"));
+      if (!id || !visible(link) || result.has(id)) continue;
+      const rect = link.getBoundingClientRect();
+      if (rect.width < 40 || rect.height < 20) continue;
+      let href;
+      try { href = new URL(link.getAttribute("href"), location.href).href; }
+      catch (_) { href = ""; }
+      result.set(id, { element: link, link, id, rect, href,
+        label: (link.textContent || "").replace(/\s+/g, " ").trim() });
+    }
+    return [...result.values()].sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left);
+  }
+
   // The video page recommends more videos in a right-hand rail. `data-e2e="related-video"`
   // is the site's own semantic hook; the hashed `li` classes change between releases.
   function railRoot() {
@@ -196,6 +231,7 @@
       !!target.closest("input,textarea,select,[contenteditable]:not([contenteditable='false']),[role='textbox']");
   }
 
-  return { visible, isGrid, isVideo, routeKey, cards, railCards, firstVisible, scrollParent, gridScroller,
-    scrollForMore, pageScroller, video, player, overlay, searchInput, editing, control, commentList, followButton };
+  return { visible, isGrid, isVideo, routeKey, cards, railCards, navCards, navIdentity, firstVisible,
+    scrollParent, gridScroller, scrollForMore, pageScroller, video, player, overlay, searchInput, editing,
+    control, commentList, followButton };
 });

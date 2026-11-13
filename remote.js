@@ -40,7 +40,7 @@
       rail: "右侧推荐视频", nextVideo: "下一条视频", prevVideo: "上一条视频",
       pageDown: "向下翻页", pageUp: "向上翻页" } },
     { id: "nav", title: "导航", actions: {
-      search: "搜索", home: "抖音精选", historyBack: "返回上一页", scrollTop: "回到顶部" } }
+      search: "搜索", guide: "左侧导航", home: "抖音精选", historyBack: "返回上一页", scrollTop: "回到顶部" } }
   ];
   const DOUYIN_SEQUENCE_ACTIONS = Object.assign({}, ...DOUYIN_SEQUENCE_GROUPS.map(group => group.actions));
   // Bilibili and Youku are playback pages with the same remote-facing actions (Bilibili adds
@@ -119,6 +119,9 @@
       nextVideo: ["ArrowRight", "ArrowDown", "ArrowLeft"], prevVideo: ["ArrowRight", "ArrowDown", "ArrowRight"],
       pageDown: ["ArrowRight", "ArrowDown", "ArrowUp"], pageUp: ["ArrowRight", "ArrowDown", "ArrowDown"],
       search: ["ArrowLeft", "ArrowRight", "ArrowLeft"], home: ["ArrowLeft", "ArrowRight", "ArrowRight"],
+      // Every branch under ← is already a complete command, so the guide entry hangs off the
+      // nav branch (← → …) and uses a letter instead of a fourth arrow.
+      guide: ["ArrowLeft", "ArrowRight", "KeyG"],
       historyBack: ["ArrowLeft", "ArrowRight", "ArrowUp"], scrollTop: ["ArrowLeft", "ArrowRight", "ArrowDown"]
     },
     bilibiliSequences: { ...videoSequencePreset },
@@ -403,7 +406,9 @@
   };
   const BROWSER_GROUPS = [
     { id: "common", title: "常用", items: [
-      { id: "previousRecent", title: "返回上个标签" }, { id: "scroll", title: "滚动网页" },
+      { id: "previousRecent", title: "返回上个标签" },
+      { id: "googleSearch", title: "谷歌搜索", hint: "输入关键词" },
+      { id: "scroll", title: "滚动网页" },
       { id: "input", title: "选择输入框" }, { id: "focus", title: "网页焦点模式" },
       { id: "restore", title: "恢复上次关闭" }] },
     { id: "sites", title: "网站", items: [] },

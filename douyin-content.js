@@ -11,9 +11,11 @@
   const matcher = R.createMatcher();
   const highlight = "douyin-keyboard-selected";
   const selectionKey = "douyinRemoteSelection";
-  const names = { list: "抖音精选", player: "抖音播放器", rail: "右侧视频" };
+  const navKey = "douyinRemoteNavSelection";
+  const names = { list: "抖音精选", player: "抖音播放器", rail: "右侧视频", nav: "左侧导航" };
   const DIRECTIONS = new Set(["up", "down", "left", "right"]);
-  const SUPPORTED = new Set([...DIRECTIONS, "confirm", "back", "togglePlayback", "fullscreen", "historyBack", "home", "search", "sidebar"]);
+  const SUPPORTED = new Set([...DIRECTIONS, "confirm", "back", "togglePlayback", "fullscreen", "historyBack",
+    "home", "search", "sidebar", "guide"]);
   const arrows = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" };
 
   let settings = R.cloneDefaults();
@@ -21,6 +23,8 @@
   let region = pageRegion();
   let selected = null;
   let railSelected = null;
+  let navSelected = null;
+  let navReturn = null;
   let transient = "";
   let messageTimer;
   let confirmTimer = null;
@@ -76,6 +80,19 @@
     if (scroll) item.element.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
     render();
   }
+  function clearNav() {
+    navSelected?.element.classList.remove(highlight);
+    navSelected = null;
+    render();
+  }
+  function selectNav(item, { scroll = true } = {}) {
+    if (!item) return;
+    navSelected?.element.classList.remove(highlight);
+    navSelected = item;
+    item.element.classList.add(highlight);
+    if (scroll) item.element.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
+    render();
+  }
   function activatable(target) {
     return target instanceof Element && !!target.closest("button,a[href],summary,label," +
       "[role='button'],[role='link'],[role='menuitem'],[role='option'],[role='tab']");
@@ -92,6 +109,21 @@
   function validRail() {
     if (!railSelected) return null;
     return railItems().find(item => item.id === railSelected.id) || null;
+  }
+  function validNav() {
+    if (!navSelected) return null;
+    return navItems().find(item => item.id === navSelected.id) || null;
+  }
+  function navItems() { return D.navCards(); }
+  function saveNav() {
+    if (!navSelected) return;
+    const index = navItems().findIndex(item => item.id === navSelected.id);
+    try { sessionStorage.setItem(navKey, JSON.stringify({ id: navSelected.id, index: Math.max(0, index) })); }
+    catch (_) { /* Private mode may reject sessionStorage. */ }
+  }
+  function savedNav() {
+    try { return JSON.parse(sessionStorage.getItem(navKey)) || null; }
+    catch (_) { return null; }
   }
   function saveState() {
     if (!D.isGrid() || !selected) return;
@@ -143,6 +175,8 @@
     notice("原视频已不在列表中，已定位到附近位置");
   }
 
+  // The left navigation keeps its own position across visits; pressing ← at the row edge or
+  // using the guide key reopens it on the entry picked last time (or the current page's entry).
   function syncRoute() {
     const nextRoute = D.routeKey();
     if (nextRoute === route) return;
@@ -154,6 +188,8 @@
     matcher.reset();
     clearSelection();
     clearRail();
+    clearNav();
+    navReturn = null;
     region = pageRegion();
     if (region === "list") void restoreSelection();
     render();
@@ -191,6 +227,15 @@
         }
       }
     }
+    if (navSelected) {
+      const current = validNav();
+      if (!current) clearNav();
+      else if (current.element !== navSelected.element) {
+        navSelected.element.classList.remove(highlight);
+        navSelected = current;
+        current.element.classList.add(highlight);
+      }
+    }
     render();
   }
 
@@ -198,6 +243,7 @@
     if (region === "player") return railSelected ? railMove(action) : playerMove(action);
     const list = items();
     if (!list.length) {
+      if (action === "left" && navItems().length) return enterNav();
       if (!D.isGrid()) return notice("当前页面没有可选择的视频");
       notice("正在等待视频加载…");
       void waitUntil(() => {
@@ -213,6 +259,8 @@
     const next = nextItem(list, current.element, arrows[action]);
     if (!next) return;
     if (next.element === current.element) {
+      // ← at the row's left edge is the entrance to Douyin's own left navigation.
+      if (action === "left") return enterNav();
       if (action === "down" || action === "right") loadMore(current);
       return;
     }
@@ -261,6 +309,71 @@
     if (!current) return selectRail(D.firstVisible(list) || list[0]);
     const next = nextItem(list, current.element, arrows[action]);
     if (next && next.element !== current.element) selectRail(next);
+  }
+
+  // Douyin's left navigation is always on screen (an icon rail when narrow), so it needs no
+  // open gesture: ← at the left edge of the grid hands the selection over, ↑↓ pick an entry,
+  // confirm opens it and → or back returns to the video that was selected before.
+  function enterNav() {
+    const enter = (list) => {
+      if (!list.length) return;
+      if (!navReturn) navReturn = railSelected ? { rail: railSelected.id } : { list: selected?.id || null };
+      cancelDownTap();
+      cancelConfirm();
+      clearSelection();
+      clearRail();
+      const saved = savedNav();
+      const chosen = saved?.id && list.find(item => item.id === saved.id) ||
+        list.find(item => item.id === D.navIdentity(location.href)) ||
+        list[Math.min(saved?.index || 0, list.length - 1)];
+      selectNav(chosen);
+      transient = "";
+      render();
+    };
+    const list = navItems();
+    if (list.length) return enter(list);
+    notice("正在等待左侧导航加载…");
+    void waitUntil(() => {
+      const loaded = navItems();
+      if (!loaded.length) return false;
+      enter(loaded);
+      return true;
+    }, 4000);
+  }
+  function navMove(action) {
+    const list = navItems();
+    if (!list.length) { clearNav(); return notice("左侧导航暂时不可用"); }
+    const current = validNav();
+    if (!current) return selectNav(D.firstVisible(list) || list[0]);
+    if (action === "up" || action === "down") {
+      const index = list.findIndex(item => item.id === current.id);
+      return selectNav(list[Math.max(0, Math.min(list.length - 1, index + (action === "down" ? 1 : -1)))]);
+    }
+    // → leaves the navigation; ← keeps the selection but hands focus back to the videos.
+    if (action === "right" || action === "left") return backFromNav();
+  }
+  function backFromNav() {
+    const saved = navReturn;
+    navReturn = null;
+    saveNav();
+    clearNav();
+    transient = "";
+    // Restoring the list re-selects the video that was current before entering the navigation.
+    if (saved?.rail) {
+      const item = railItems().find(candidate => candidate.id === saved.rail);
+      if (item) selectRail(item);
+    } else if (saved?.list) {
+      const item = items().find(candidate => candidate.id === saved.list);
+      if (item) select(item);
+    }
+    render();
+  }
+  function openNav() {
+    const item = validNav() || D.firstVisible(navItems());
+    if (!item) return notice("左侧导航暂时不可用");
+    selectNav(item);
+    saveNav();
+    if (item.href) location.assign(item.href);
   }
 
   // Replace the site's own ↑↓ handling so a second tap can be claimed for the rail.
@@ -362,6 +475,7 @@
     ];
     const nav = [
       { action: "search", label: "搜索", hint: bindingHint("search") },
+      { action: "guide", label: "左侧导航", hint: bindingHint("guide") },
       { action: "home", label: "抖音精选", hint: bindingHint("home") },
       { action: "historyBack", label: "返回上一页", hint: bindingHint("historyBack") },
       { action: "scrollTop", label: "回到顶部" }
@@ -375,7 +489,7 @@
       .filter(group => group.actions.length);
   }
   function openPanel() {
-    if (!panel || panelOpen || region !== "player" || railSelected) return;
+    if (!panel || panelOpen || region !== "player" || railSelected || navSelected) return;
     if (D.overlay()) return notice("请先关闭网页弹窗");
     cancelConfirm();
     cancelDownTap();
@@ -427,6 +541,7 @@
       case "pageUp": return pageScroll("up");
       case "scrollTop": return pageTop();
       case "search": return focusSearch();
+      case "guide": return enterNav();
       case "home": return location.assign("https://www.douyin.com/jingxuan");
       case "historyBack": return history.back();
     }
@@ -516,6 +631,7 @@
     }, settings.doubleInterval);
   }
   function openSelected() {
+    if (navSelected) return openNav();
     if (railSelected) {
       const item = validRail();
       if (!item) return notice("视频尚未加载，请稍后重试");
@@ -540,12 +656,13 @@
       return;
     }
     // First back leaves the recommendation rail, the next one leaves the video page.
+    if (navSelected) { backFromNav(); return; }
     if (railSelected) { clearRail(); notice("已返回播放器"); return; }
     if (history.length > 1) history.back();
     else location.assign("https://www.douyin.com/jingxuan");
   }
   function run(action) {
-    if (DIRECTIONS.has(action)) return move(action);
+    if (DIRECTIONS.has(action)) return navSelected ? navMove(action) : move(action);
     if (action === "confirm") return scheduleConfirm();
     if (action === "back") return goBack();
     if (action === "togglePlayback") return togglePlayback();
@@ -554,6 +671,7 @@
     if (action === "home") return location.assign("https://www.douyin.com/jingxuan");
     if (action === "search") return focusSearch();
     if (action === "sidebar") return enterRail();
+    if (action === "guide") return enterNav();
   }
 
   function consume(event) {
@@ -579,7 +697,7 @@
     // The video page owns ↑↓ completely: a single tap pages the route container, and a quick
     // second ↓ enters the right rail. Consuming both taps keeps Douyin's own next-video shortcut
     // from firing while the user is trying to reach the cards.
-    if (settings.enabled && region === "player" && !railSelected &&
+    if (settings.enabled && region === "player" && !railSelected && !navSelected &&
         (resolved === "up" || resolved === "down")) {
       logEvent(event, resolved);
       if (D.overlay()) { cancelDownTap(); return; }
@@ -605,7 +723,8 @@
       action = base;
     }
     // While picking in the rail, a rapid second tap is just another move, not a player double.
-    if (railSelected) {
+    // The same holds for the left navigation, where ↑↓ never double into an action.
+    if (railSelected || navSelected) {
       const base = R.resolve(settings, value);
       if (base && DIRECTIONS.has(base)) action = base;
     }
@@ -653,19 +772,23 @@
     }
     const parent = document.fullscreenElement || document.documentElement;
     if (ui.host.parentElement !== parent) parent.append(ui.host);
-    const title = railSelected ? names.rail
-      : region === "player" ? names.player : D.isGrid() ? names.list : "抖音";
+    const title = navSelected ? names.nav
+      : railSelected ? names.rail
+        : region === "player" ? names.player : D.isGrid() ? names.list : "抖音";
     const confirmLabel = settings.bindings.confirm && settings.bindings.confirm !== "Enter"
       ? R.label(settings.bindings.confirm) : "Enter";
-    const detail = transient || (railSelected
-      ? "方向键选视频 · 确认播放 · Esc 返回播放器"
-      : region === "player"
-        ? `←→ 快进 · 确认暂停 · 双击 ${confirmLabel} 指令 · 双击↓ 右侧视频 · Esc 返回`
-        : D.isGrid() ? "方向键选片 · 确认播放" : "方向键浏览 · 确认打开");
+    const detail = transient || (navSelected
+      ? "↑↓选择导航 · 确认打开 · → 或 Esc 返回视频"
+      : railSelected
+        ? "方向键选视频 · 确认播放 · Esc 返回播放器"
+        : region === "player"
+          ? `←→ 快进 · 确认暂停 · 双击 ${confirmLabel} 指令 · 双击↓ 右侧视频 · Esc 返回`
+          : D.isGrid() ? "方向键选片 · 确认播放 · ← 到最左侧进入导航" : "方向键浏览 · 确认打开");
     if (ui.title.textContent !== title) ui.title.textContent = title;
     if (ui.detail.textContent !== detail) ui.detail.textContent = detail;
     ui.host.dataset.region = region;
     ui.host.dataset.rail = railSelected ? "1" : "0";
+    ui.host.dataset.nav = navSelected ? "1" : "0";
     ui.host.dataset.panel = panelOpen ? "1" : "0";
     const hidden = !settings.enabled || browserActive || panelOpen || (!!document.fullscreenElement && !transient) ||
       (!settings.showStatus && !transient);
@@ -688,7 +811,7 @@
   window.addEventListener("blur", () => {
     composing = false; cancelConfirm(); cancelDownTap(); closePanel(); matcher.reset(); consumedKeys.clear();
   });
-  window.addEventListener("pagehide", () => { cancelDownTap(); closePanel(); saveState(); });
+  window.addEventListener("pagehide", () => { cancelDownTap(); closePanel(); saveState(); saveNav(); });
   window.addEventListener("popstate", () => { route = ""; syncRoute(); });
   document.addEventListener("fullscreenchange", render);
   new MutationObserver(() => {
@@ -704,8 +827,7 @@
     entryPressed() { cancelConfirm(); cancelDownTap(); closePanel(); matcher.reset(); },
     activate() { browserActive = true; cancelConfirm(); cancelDownTap(); closePanel(); matcher.reset(); render(); },
     deactivate() { browserActive = false; render(); }
-  };
-  void chrome.storage.local.get(["remoteSettings", "diagnosticsUntil"]).then((stored) => {
+  };  void chrome.storage.local.get(["remoteSettings", "diagnosticsUntil"]).then((stored) => {
     settings = R.normalize(stored.remoteSettings);
     diagnosticsUntil = Number(stored.diagnosticsUntil) || 0;
     render();

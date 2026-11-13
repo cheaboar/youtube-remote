@@ -26,19 +26,26 @@
   let hostActive = false;
   let requestSeq = 0;
   const entry = R.createTapCounter();
+  // On the three-tap sites the second tap opens the command panel, so the tap that actually
+  // completes the gesture lands on an open panel and usually comes after the double interval
+  // (the panel is already on screen). That last press gets its own, longer window; any other key
+  // pressed in the panel cancels it so panel commands keep their single-confirm meaning.
+  const entryPanelWindow = () => Math.max(settings.doubleInterval * 3, 1200);
+  let entryPanelUntil = 0;
   const consumed = new Set();
   const states = { active: false, revision: -1, sessionId: "", phase: "direct",
     position: 0, total: 0, activeTabId: null, selectedTabId: null, selectedAction: "", selectedItemId: "", menuGroup: "common", menuItems: [], closeArmed: false, tabs: [] };
-  const PAGE_ACTIONS = { focus: "网页焦点模式", input: "定位输入框", reload: "刷新当前页面", close: "关闭当前标签页" };
+  const PAGE_ACTIONS = { focus: "网页焦点模式", input: "定位输入框", googleSearch: "谷歌搜索", reload: "刷新当前页面", close: "关闭当前标签页" };
   let hud = null;
   let hudParts = null;
   // Page interaction is local to this tab's top frame: focus traversal, text entry and the
   // two-step close never need to leave the page.
-  let pageMode = null; // null | { kind: "focus", index, total } | { kind: "input", element }
+  let pageMode = null; // null | { kind: "focus", index, total } | { kind: "input", element } | { kind: "search" }
   let closePending = null;
   let markedElement = null;
   let markedStyle = null;
   let pageNotice = "";
+  let searchDraft = "";
   let noticeTimer = null;
   let entrySuppressedUntil = 0;
   let lastScroll = 0;
@@ -173,6 +180,7 @@
   }
   function resetPageState(renderNow = true) {
     pageMode = null;
+    searchDraft = "";
     unmark();
     cancelClose();
     clearTimeout(noticeTimer);
@@ -227,6 +235,20 @@
     reveal(target);
     render();
   }
+  // The panel's search box lives in the HUD, so the remote's voice/text input lands there
+  // without touching the page. Confirming turns the query into a Google search in this tab.
+  function enterSearchMode() {
+    pageMode = { kind: "search" };
+    searchDraft = "";
+    render();
+    hudParts?.searchField.focus({ preventScroll: true });
+  }
+  function submitSearch() {
+    const query = String(searchDraft || "").replace(/\s+/g, " ").trim();
+    if (!query) { notifyPage("请输入搜索关键词"); return; }
+    if (query.length > 200) { notifyPage("搜索关键词过长"); return; }
+    location.assign(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
+  }
   function moveInputPick(step) {
     const items = textTargets();
     if (!items.length) { leavePageMode(); notifyPage("页面上没有找到可输入的文本框"); return; }
@@ -264,6 +286,7 @@
     if (handledPageActions.size > 200) handledPageActions.delete(handledPageActions.values().next().value);
     if (action.action === "focus") enterFocusMode();
     else if (action.action === "input") enterInputPick();
+    else if (action.action === "googleSearch") enterSearchMode();
     else if (action.action === "scroll") { pageMode = { kind: "scroll" }; render(); }
     else if (action.action === "scrollTop" || action.action === "scrollBottom") {
       const target = document.scrollingElement;
@@ -333,9 +356,9 @@
     else if (!states.active && hostActive) { hostActive = false; bridge.deactivate?.(); }
   }
 
-  function sendInput(input) {
+  function sendInput(input, extra = {}) {
     if (!states.active) return;
-    const message = { type: "remote:browser-input", sessionId: states.sessionId, input, requestId: nextRequestId() };
+    const message = { type: "remote:browser-input", sessionId: states.sessionId, input, requestId: nextRequestId(), ...extra };
     if (input === "activateSelected") message.expectedItemId = states.selectedItemId;
     return send(message).then((result) => {
       if (result?.state) applyState(result.state);
@@ -345,6 +368,7 @@
   }
   function enter() {
     entry.reset();
+    entryPanelUntil = 0;
     send({ type: "remote:browser-enter", requestId: nextRequestId() }).then((result) => {
       if (result?.state) applyState(result.state);
     });
@@ -373,23 +397,36 @@
     if (states.active) { modeKey(event, chord); return; }
     if (!loaded || !settings.enabled) { entry.reset(); return; }
     const bridge = host();
-    if (!chord || chord !== settings.bindings.browser) { entry.reset(); return; }
+    if (!chord || chord !== settings.bindings.browser) { entry.reset(); entryPanelUntil = 0; return; }
     if (editable(event.target)) { entry.reset(); return; }
     if (!onYouTube && activatable(event.target)) { entry.reset(); return; }
     // The command panel keeps its own key grammar. Only the tap that completes the entry gesture
     // reaches it: on YouTube the second tap opens the panel and the third one enters the mode.
     const panelOpen = !!bridge?.entryAllowed && !bridge.entryAllowed();
     const required = entryTaps();
-    if (panelOpen && entry.count < required - 1) { entry.reset(); return; }
+    // Completing the gesture on an already-open panel: the press may come after the double
+    // interval, because the panel has been visible since the second tap. Enter the mode instead
+    // of running the panel's selected command while that window lasts.
+    if (panelOpen && required === 3 && chord === settings.bindings.confirm &&
+      performance.now() <= entryPanelUntil) {
+      entry.reset();
+      consume(event);
+      bridge?.entryPressed?.();
+      enter();
+      return;
+    }
+    if (panelOpen && entry.count < required - 1) { entry.reset(); entryPanelUntil = 0; return; }
     const taps = entry.press(event, settings.doubleInterval);
     if (taps < required) {
+      // The second tap of a three-tap entry arms the longer window for the completing press.
+      if (required === 3 && taps === 2 && chord === settings.bindings.confirm) entryPanelUntil = performance.now() + entryPanelWindow();
       // A non-confirm entry key still cancels a delayed single confirm on its first tap.
       if (taps === 1 && chord !== settings.bindings.confirm) bridge?.entryPressed?.();
       return;
     }
     // Sharing the confirm key means the second tap opens the panel and the third one closes it;
     // if no panel is open, this press belongs to the page instead of a stale earlier double tap.
-    if (required === 3 && !panelOpen && chord === settings.bindings.confirm) { entry.reset(); return; }
+    if (required === 3 && !panelOpen && chord === settings.bindings.confirm) { entry.reset(); entryPanelUntil = 0; return; }
     entry.reset();
     consume(event);
     bridge?.entryPressed?.();
@@ -439,6 +476,24 @@
         return;
       }
       leavePageMode();
+    }
+    // The HUD's own search box owns the keys: they type into it instead of reaching the page.
+    if (pageMode?.kind === "search") {
+      if (event.isComposing || event.keyCode === 229) return;
+      const logical = logicalKey(chord);
+      if (logical === "back" && !["Backspace", "Enter", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        consume(event);
+        if (!event.repeat) { leavePageMode(); sendInput("openTitles"); }
+        return;
+      }
+      if (chord === "Enter" || logical === "confirm") {
+        consume(event);
+        if (!event.repeat) submitSearch();
+        return;
+      }
+      // Arrows stay native so a keyboard can move the caret; the remote types with its own keys.
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace", "Delete", "Tab"].includes(event.key)) return;
+      return;
     }
     if (pageMode?.kind === "inputPick" || pageMode?.kind === "scroll") {
       if (event.ctrlKey || event.altKey || event.metaKey) return;
@@ -572,6 +627,12 @@
     .meta{flex-shrink:0;margin:0;color:#575b63;font-size:13px;font-variant-numeric:tabular-nums}
     .current{flex-shrink:0;margin:10px 0 0;padding:9px 12px;border:1px solid rgba(255,255,255,.5);border-radius:14px;
       background:rgba(255,255,255,.34);font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .search{flex-shrink:0;display:flex;margin:12px 0 0}
+    .search[hidden]{display:none}
+    .search input{flex:1;min-width:0;height:40px;padding:0 14px;border:1px solid rgba(88,101,120,.3);border-radius:13px;
+      background:rgba(255,255,255,.74);color:#34363b;font:inherit;font-size:15px;font-weight:500;outline:none;pointer-events:auto}
+    .search input::placeholder{color:#7c818a;font-weight:400}
+    .search input:focus{border-color:#0059bd;box-shadow:0 0 0 3px rgba(0,89,189,.16)}
     .rows{position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 10px 0;margin:12px -10px 0;isolation:isolate;
       scrollbar-width:thin;scrollbar-color:rgba(88,101,120,.23) transparent}
     .row{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:38px;padding:4px 0;
@@ -607,15 +668,36 @@
     meta.className = "meta";
     const current = document.createElement("p");
     current.className = "current";
+    // The search box belongs to the HUD so the remote's text or voice input never has to fight
+    // the page for focus. `pointer-events:auto` is the only clickable part of the panel.
+    const search = document.createElement("div");
+    search.className = "search";
+    search.hidden = true;
+    const searchField = document.createElement("input");
+    searchField.type = "search";
+    searchField.name = "google-search";
+    searchField.autocomplete = "off";
+    searchField.setAttribute("placeholder", "输入关键词后按确认搜索");
+    searchField.setAttribute("aria-label", "谷歌搜索关键词");
+    search.append(searchField);
+    searchField.addEventListener("input", () => {
+      searchDraft = searchField.value;
+      hud.dataset.query = searchDraft;
+    });
+    searchField.addEventListener("keydown", (event) => {
+      // The page-level key handler already forwards confirm/back while the search mode is open;
+      // stop the keystroke from also reaching the page's own listeners.
+      if (event.key === "Enter") event.preventDefault();
+    });
     const rows = document.createElement("div");
     rows.className = "rows";
     rows.setAttribute("role", "listbox");
     rows.setAttribute("aria-label", "页面操作与标签页");
     const footer = document.createElement("p");
     footer.className = "footer";
-    panel.append(title, meta, current, rows, footer);
+    panel.append(title, meta, current, search, rows, footer);
     shadow.append(style, panel);
-    hudParts = { meta, current, rows, footer };
+    hudParts = { meta, current, search, searchField, rows, footer };
     return hud;
   }
   function render() {
@@ -645,6 +727,12 @@
     hud.dataset.closeArmed = states.phase === "titles" && states.closeArmed ? "true" : "";
     hud.dataset.icons = states.phase === "titles" ? String(states.menuItems.filter(item => typeof item.icon === "string" && item.icon).length) : "";
     const active = states.tabs.find(tab => tab.active);
+    const searching = pageMode?.kind === "search";
+    hudParts.search.hidden = !searching;
+    if (searching) {
+      if (hudParts.searchField.value !== searchDraft) hudParts.searchField.value = searchDraft;
+      if (document.activeElement !== hudParts.searchField) hudParts.searchField.focus({ preventScroll: true });
+    }
     if (pageMode) {
       hudParts.rows.hidden = true;
       hudParts.rows.replaceChildren();
@@ -652,11 +740,16 @@
       const pick = pageMode.kind === "inputPick";
       const scroll = pageMode.kind === "scroll";
       hudParts.meta.textContent = focus ? `焦点 ${pageMode.index + 1} / ${pageMode.total}` :
-        pick ? `输入框 ${pageMode.index + 1} / ${pageMode.total}` : scroll ? "滚动网页" : "文字输入";
+        pick ? `输入框 ${pageMode.index + 1} / ${pageMode.total}` :
+          scroll ? "滚动网页" : searching ? "谷歌搜索" : "文字输入";
       hudParts.meta.className = "meta";
-      hudParts.current.textContent = scroll ? "方向键滚动当前网页" : labelOf(focus ? document.activeElement : pageMode.element) || "页面元素";
+      hudParts.current.textContent = scroll ? "方向键滚动当前网页"
+        : searching ? (searchDraft ? `搜索：${searchDraft}` : "输入关键词后按确认搜索")
+          : labelOf(focus ? document.activeElement : pageMode.element) || "页面元素";
       hudParts.footer.textContent = pageNotice || (focus ? "方向键移动焦点 · Enter 激活 · Esc 返回直控" :
-        pick ? "方向键选择输入框 · Enter 输入 · Esc 返回菜单" : scroll ? "↑↓ 小步滚动 · ←→ 翻屏 · 确认返回菜单 · Esc 返回直控" : "直接输入或语音 · Esc 返回输入框选择");
+        pick ? "方向键选择输入框 · Enter 输入 · Esc 返回菜单" :
+          scroll ? "↑↓ 小步滚动 · ←→ 翻屏 · 确认返回菜单 · Esc 返回直控" :
+            searching ? "直接输入或语音 · 确认搜索 · Esc 返回菜单" : "直接输入或语音 · Esc 返回输入框选择");
       hudParts.footer.className = pageNotice ? "footer error" : "footer";
       return;
     }
@@ -722,7 +815,7 @@
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("keyup", onKeyUp, true);
   window.addEventListener("keypress", onKeyPress, true);
-  window.addEventListener("blur", () => { consumed.clear(); entry.reset(); resetPageState(); });
+  window.addEventListener("blur", () => { consumed.clear(); entry.reset(); entryPanelUntil = 0; resetPageState(); });
   window.addEventListener("focus", refresh);
   window.addEventListener("pageshow", () => { resetPageState(false); refresh(); });
   window.addEventListener("popstate", () => resetPageState());

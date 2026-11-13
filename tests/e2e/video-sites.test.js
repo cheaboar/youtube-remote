@@ -8,6 +8,7 @@ const { chromium } = require("playwright");
 const root = path.resolve(__dirname, "../..");
 const EXTENSION_FILES = ["background.js", "browser.js", "command-panel.js", "content.js", "content.css",
   "douyin-content.js", "douyin.js", "bilibili.js", "youku.js", "video-site-content.js", "navigation.js",
+  "google.js", "google-content.js",
   "remote.js", "recovery.html", "recovery.js", "recovery.css", "youtube.js",
   "options.html", "options.css", "options.js", "popup.html", "popup.css", "popup.js", "manifest.json"];
 let extensionDir, context, page;
