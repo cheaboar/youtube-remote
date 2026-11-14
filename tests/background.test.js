@@ -17,6 +17,9 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
     { id: 3, index: 2, active: false, windowId: 7, title: "Docs", url: "https://docs.example.com/" }
   ]);
   let granted = permission;
+  // Tabs whose controller answers the reinjection ping. Tab 1 represents the tab the extension
+  // was installed in; everything else is treated as a page that predates the extension.
+  const liveControllers = new Set([1]);
   const history = {};
   const chrome = {
     runtime: { id: "extension",
@@ -68,7 +71,17 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
         if (!history[id]?.forward) throw new Error("Cannot go forward");
         calls.push(["forward", id]);
       },
-      sendMessage: async (id, message) => { calls.push(["message", id, message]); },
+      get: async id => {
+        const tab = tabs.find(item => item.id === id);
+        if (!tab) throw new Error("No tab with id");
+        return clone(tab);
+      },
+      sendMessage: async (id, message) => {
+        calls.push(["message", id, message]);
+        if (message?.type !== "remote:browser-ping") return undefined;
+        if (liveControllers.has(id)) return { ok: true };
+        throw new Error("Could not establish connection. Receiving end does not exist.");
+      },
       onActivated: on("tabs.onActivated"), onCreated: on("tabs.onCreated"), onMoved: on("tabs.onMoved"),
       onAttached: on("tabs.onAttached"), onDetached: on("tabs.onDetached"), onReplaced: on("tabs.onReplaced"),
       onUpdated: on("tabs.onUpdated"), onRemoved: on("tabs.onRemoved")
@@ -94,6 +107,7 @@ function createWorker({ permission = true, tabs: initial = null } = {}) {
   return {
     calls, store, registered, tabs: () => tabs,
     setPermission: value => { granted = value; },
+    setController: (id, live = true) => { if (live) liveControllers.add(id); else liveControllers.delete(id); },
     setHistory: (id, value) => { history[id] = value; },
     removeTab: id => { tabs = tabs.filter(tab => tab.id !== id); },
     activateTab: id => chrome.tabs.update(id, { active: true }),
@@ -352,6 +366,11 @@ test("grouped menus reject stale selections and return page actions once", async
   const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
   const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
   let result = await input("openTitles", "m1");
+  // The panel starts on the tab wheel with the current tab selected.
+  assert.equal(result.state.menuGroup, "tabs");
+  assert.equal(result.state.selectedItemId, "tab:1");
+  await input("groupNext", "m1b");
+  result = await input("groupNext", "m1c");
   assert.equal(result.state.menuGroup, "common");
   assert.equal(result.state.selectedItemId, "previousRecent");
   result = await input("selectionNext", "m2");
@@ -372,7 +391,7 @@ test("menu close is confirmed twice, records URL, and navigation cancels confirm
   const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
   const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
   await input("openTitles", "c1");
-  await input("groupPrevious", "c2");
+  await input("groupNext", "c2");
   for (let i = 0; i < 4; i++) await input("selectionNext", `c3-${i}`);
   assert.equal((await input("activateSelected", "c4", { expectedItemId: "close" })).state.closeArmed, true);
   await worker.emit("tabs.onUpdated", 1, { status: "loading" });
@@ -388,7 +407,7 @@ test("favorites save the current page and require a second confirmation to remov
   const worker = createWorker();
   const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
   const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
-  await input("openTitles", "fav1"); await input("groupNext", "fav2"); await input("selectionNext", "fav3");
+  await input("openTitles", "fav1"); await input("groupPrevious", "fav2"); await input("selectionNext", "fav3");
   assert.equal((await input("activateSelected", "fav4", { expectedItemId: "favoriteCurrent" })).ok, true);
   const favorite = worker.store.get("remoteFavorites")[0];
   assert.equal(favorite.url, "https://www.youtube.com/");
@@ -405,7 +424,7 @@ test("last tab closes only after authenticated recovery ready and restores its U
   const worker = createWorker({ tabs: [{ id: 1, index: 0, active: true, windowId: 7, title: "YouTube", url: "https://www.youtube.com/" }] });
   const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
   const input = (name, requestId, extra = {}) => worker.send({ type: "remote:browser-input", sessionId, input: name, requestId, ...extra }, youtube());
-  await input("openTitles", "x1"); await input("groupPrevious", "x2");
+  await input("openTitles", "x1"); await input("groupNext", "x2");
   for (let i = 0; i < 4; i++) await input("selectionNext", `x3-${i}`);
   await input("activateSelected", "x4", { expectedItemId: "close" });
   const closing = input("activateSelected", "x5", { expectedItemId: "close" });
@@ -445,6 +464,36 @@ test("recent tab follows real activation and supports A/B return", async () => {
   const sessionId = (await worker.send({ type: "remote:browser-enter" }, youtube())).state.sessionId;
   await worker.send({ type: "remote:browser-input", sessionId, input: "nextTab", requestId: "r1" }, youtube());
   await worker.send({ type: "remote:browser-input", sessionId, input: "openTitles", requestId: "r2" }, site());
+  // Leave the tab wheel for the common group, where the recent-previous entry lives.
+  await worker.send({ type: "remote:browser-input", sessionId, input: "groupNext", requestId: "r2a" }, site());
+  await worker.send({ type: "remote:browser-input", sessionId, input: "groupNext", requestId: "r2b" }, site());
   const result = await worker.send({ type: "remote:browser-input", sessionId, input: "activateSelected", expectedItemId: "previousRecent", requestId: "r3" }, site());
   assert.equal(result.state.activeTabId, 1);
+});
+
+test("a tab opened before the extension is repaired when the user switches to it", async () => {
+  const worker = createWorker();
+  await worker.tick();
+  // The active tab at startup answers the ping, so no repair was needed yet.
+  assert.equal(worker.calls.filter(call => call[0] === "inject").length, 0);
+  await worker.emit("tabs.onActivated", { tabId: 2, windowId: 7 });
+  await worker.tick();
+  // The force-init flag and the controller files are injected without a page refresh.
+  assert.deepEqual(worker.calls.filter(call => call[0] === "inject"), [["inject", 2], ["inject", 2]]);
+});
+
+test("a tab with a live controller is not reinjected when the user switches to it", async () => {
+  const worker = createWorker();
+  await worker.emit("tabs.onActivated", { tabId: 1, windowId: 7 });
+  await worker.tick();
+  assert.equal(worker.calls.filter(call => call[0] === "inject").length, 0);
+  assert.ok(worker.messagesTo(1).some(call => call[2]?.type === "remote:browser-ping"));
+});
+
+test("restricted tabs are never injected when they are activated", async () => {
+  const worker = createWorker();
+  worker.setTab(2, { url: "chrome://settings/" });
+  await worker.emit("tabs.onActivated", { tabId: 2, windowId: 7 });
+  await worker.tick();
+  assert.equal(worker.calls.filter(call => call[0] === "inject").length, 0);
 });

@@ -303,8 +303,12 @@ test("settings recording, conflict detection, live remapping and redacted diagno
   await options.screenshot({ path: "test-results/options.png", fullPage: true });
   const popup = await context.newPage(); await popup.setViewportSize({ width: 348, height: 600 });
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await popup.waitForFunction(() => document.querySelector('#shortcuts').textContent.includes('Alt+Shift+S'));
-  assert.match(await popup.locator('#shortcuts').textContent(), /Alt\+Shift\+H/);
+  await popup.waitForFunction(() => document.querySelector('#shortcuts').textContent.includes('确认键'));
+  // The popup documents the remote's buttons, not the keyboard shortcuts behind them.
+  const shortcuts = await popup.locator('#shortcuts').textContent();
+  assert.match(shortcuts, /↑↓←→/);
+  assert.ok(!shortcuts.includes('Alt+Shift'));
+  await popup.waitForFunction(() => document.querySelector('#sequence-help').textContent.includes('← ←'));
   assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth), 348);
   assert.ok(await popup.evaluate(() => document.documentElement.scrollHeight <= 600));
   await popup.setViewportSize({ width: 200, height: 600 });

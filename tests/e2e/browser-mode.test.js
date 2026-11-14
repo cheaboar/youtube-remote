@@ -154,15 +154,19 @@ async function openActions(page) {
   // Opening and activation are distinct gestures.
   await page.waitForTimeout(450);
 }
-async function selectAction(page, action) {
-  if ((await hud(page)).phase !== "titles") await openActions(page);
-  const group = ["reload", "close", "scrollTop", "scrollBottom"].includes(action) ? "page" : "common";
+// The panel opens on the tabs group; step right through the remaining groups until one matches.
+async function selectGroup(page, group) {
   for (let i = 0; i < 4 && (await hud(page)).group !== group; i++) {
     const before = (await hud(page)).group;
     await press(page, "ArrowRight");
     await page.waitForFunction(value => document.querySelector("#youtube-remote-browser")?.dataset.group !== value, before);
   }
   assert.equal((await hud(page)).group, group);
+}
+async function selectAction(page, action) {
+  if ((await hud(page)).phase !== "titles") await openActions(page);
+  const group = ["reload", "close", "scrollTop", "scrollBottom"].includes(action) ? "page" : "common";
+  await selectGroup(page, group);
   for (let i = 0; i < 20 && (await hud(page)).item !== action; i++) {
     const before = (await hud(page)).item;
     await press(page, "ArrowDown");
@@ -243,6 +247,58 @@ test("arrows switch tabs inside the mode and wrap around the window", async () =
   await Promise.all([first.close(), second.close(), third.close()]);
 });
 
+test("the tabs list shows three rows, centers the selected tab and blurs the edges", async () => {
+  const pages = [];
+  for (let i = 0; i < 7; i++) pages.push(await sitePage(`/tab-${i}`));
+  const page = pages[0];
+  await page.bringToFront();
+  await enterBrowser(page);
+  await openActions(page);
+  // The panel opens on the tab wheel, with the tab that entered the mode selected.
+  assert.equal((await hud(page)).group, "tabs");
+  const tabsWindow = () => page.evaluate(() => {
+    const host = document.querySelector("#youtube-remote-browser");
+    const list = host?.shadowRoot?.querySelector(".rows");
+    if (!list) return null;
+    const box = list.getBoundingClientRect();
+    const rows = [...list.children];
+    const selected = rows.find(row => row.classList.contains("selected"));
+    const selectedBox = selected?.getBoundingClientRect();
+    return {
+      count: rows.length, height: box.height, center: box.top + box.height / 2,
+      rowHeight: selectedBox?.height || 0,
+      selectedCenter: selectedBox ? selectedBox.top + selectedBox.height / 2 : null,
+      scrollTop: list.scrollTop, overflowing: list.classList.contains("overflowing"),
+      blurred: rows.filter(row => row.style.filter.includes("blur")).length
+    };
+  });
+  let view = await tabsWindow();
+  assert.equal(view.count, 7);
+  assert.equal(view.overflowing, true);
+  // Three full rows plus the two peeking halves.
+  assert.ok(view.height >= view.rowHeight * 3 && view.height < view.rowHeight * 4);
+  // The ends clamp like any list; once inside, the selected tab sits in the middle.
+  await press(page, "ArrowDown");
+  await press(page, "ArrowDown");
+  await page.waitForFunction(() => {
+    const list = document.querySelector("#youtube-remote-browser")?.shadowRoot?.querySelector(".rows");
+    return list && list.scrollTop > 0;
+  });
+  view = await tabsWindow();
+  assert.ok(Math.abs(view.selectedCenter - view.center) <= 2, `${view.selectedCenter} vs ${view.center}`);
+  assert.ok(view.blurred > 0);
+  const firstScroll = view.scrollTop;
+  await press(page, "ArrowDown");
+  await page.waitForFunction(top => {
+    const list = document.querySelector("#youtube-remote-browser")?.shadowRoot?.querySelector(".rows");
+    return list && list.scrollTop > top;
+  }, firstScroll);
+  view = await tabsWindow();
+  assert.ok(Math.abs(view.selectedCenter - view.center) <= 2, `${view.selectedCenter} vs ${view.center}`);
+  await page.screenshot({ path: "test-results/browser-tabs.png" });
+  await Promise.all(pages.map(item => item.close()));
+});
+
 test("switching skips tabs that cannot run the controller", async () => {
   const page = await youtubePage("/");
   const options = await context.newPage();
@@ -294,13 +350,46 @@ test("exiting on the active tab releases the tab that was left behind", async ()
   await Promise.all([first.close(), second.close()]);
 });
 
+test("a tab left behind by an older extension context is repaired when it is activated", async () => {
+  const page = await sitePage("/");
+  const neighbor = await sitePage("/neighbor");
+  await page.bringToFront();
+  await page.evaluate(() => { window.keptAcrossRepair = true; });
+  const tabId = await activeTabId();
+  // An extension update or reload invalidates the page's controller while leaving its listeners in
+  // place. dispose() reproduces that state: nothing answers the background any more, and the page
+  // must not be refreshed to recover.
+  await worker.evaluate(async tabId => {
+    await chrome.scripting.executeScript({ target: { tabId },
+      func: () => globalThis.__remoteBrowserController?.dispose?.() });
+  }, tabId);
+  await page.waitForFunction(() => !document.querySelector("#youtube-remote-browser"));
+  await neighbor.bringToFront();
+  await page.bringToFront();
+  let repaired = false;
+  for (let i = 0; i < 60 && !repaired; i++) {
+    repaired = await worker.evaluate(async tabId => {
+      try {
+        const reply = await chrome.tabs.sendMessage(tabId, { type: "remote:browser-ping" }, { frameId: 0 });
+        return reply?.ok === true;
+      } catch (_) { return false; }
+    }, tabId);
+    if (!repaired) await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(repaired, true);
+  assert.equal(await page.evaluate(() => window.keptAcrossRepair), true);
+  await enterBrowser(page);
+  assert.equal((await hud(page)).active, "true");
+  await Promise.all([page.close(), neighbor.close()]);
+});
+
 test("single confirm opens the menu without reloading; reload is explicit", async () => {
   const page = await sitePage("/");
   await enterBrowser(page);
   await page.evaluate(() => { window.beforeReload = true; });
   await openActions(page);
   assert.equal(await page.evaluate(() => window.beforeReload), true);
-  assert.equal((await hud(page)).group, "common");
+  assert.equal((await hud(page)).group, "tabs");
   await selectAction(page, "reload");
   await Promise.all([page.waitForEvent("load"), press(page, "Enter")]);
   assert.equal(await page.evaluate(() => window.beforeReload), undefined);
@@ -360,7 +449,7 @@ test("entry double tap opens the menu without activating, and Escape returns", a
   await press(page, "Enter");
   await page.waitForTimeout(500);
   assert.equal((await hud(page)).phase, "titles");
-  assert.equal((await hud(page)).group, "common");
+  assert.equal((await hud(page)).group, "tabs");
   await press(page, "Escape");
   await page.waitForFunction(() => document.querySelector("#youtube-remote-browser")?.dataset.phase === "direct");
   await press(page, "Escape");
@@ -706,8 +795,7 @@ test("the sites menu shows a page icon, and falls back to a letter when it canno
   const page = await sitePage("/");
   await enterBrowser(page);
   await openActions(page);
-  await press(page, "ArrowRight");
-  await page.waitForFunction(() => document.querySelector("#youtube-remote-browser")?.dataset.group === "sites");
+  await selectGroup(page, "sites");
   assert.equal((await hud(page)).icons, "3");
   const rows = page.locator("#youtube-remote-browser .row");
   assert.equal(await rows.locator(".fav-icon").count(), 3);
@@ -736,8 +824,7 @@ test("the sites menu shows a page icon, and falls back to a letter when it canno
   const second = await sitePage("/");
   await enterBrowser(second);
   await openActions(second);
-  await press(second, "ArrowRight");
-  await second.waitForFunction(() => document.querySelector("#youtube-remote-browser")?.dataset.group === "sites");
+  await selectGroup(second, "sites");
   await second.waitForFunction(() => {
     const host = document.querySelector("#youtube-remote-browser");
     const badge = [...host.shadowRoot.querySelectorAll(".fav-icon")].at(-1);
@@ -769,11 +856,8 @@ test("the open tabs list shows a loaded page icon and reserves no space when the
   const plain = await sitePage("/plain");
   await enterBrowser(plain);
   await openActions(plain);
-  // Groups are common, sites, tabs; two steps right reaches the tab list.
-  for (const group of ["sites", "tabs"]) {
-    await press(plain, "ArrowRight");
-    await plain.waitForFunction(value => document.querySelector("#youtube-remote-browser")?.dataset.group === value, group);
-  }
+  // The panel opens on the tab list itself.
+  assert.equal((await hud(plain)).group, "tabs");
   const rows = plain.locator("#youtube-remote-browser .row");
   await plain.waitForFunction(() => document.querySelector("#youtube-remote-browser").shadowRoot.querySelectorAll(".row").length >= 2);
   const state = await plain.evaluate(() => {

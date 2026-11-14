@@ -5,6 +5,15 @@
   "description": "使用方向键选择 YouTube、抖音、哔哩哔哩或优酷网页的视频并按 Enter 播放；双击 Enter 打开指令面板，三击进入浏览器全局遥控。",
   "minimum_chrome_version": "119",
   "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.douyin.com/*",
+    "https://www.bilibili.com/*",
+    "https://www.youku.com/*",
+    "https://v.youku.com/*",
+    "https://www.google.com/search*",
+    "https://www.google.com.hk/search*"
+  ],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "icons": {
     "16": "icons/icon-16.png",
@@ -15,7 +24,7 @@
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
   "action": {
-    "default_title": "YouTube / 抖音 / B站 / 优酷 键盘选片：快捷键说明",
+    "default_title": "YouTube / 抖音 / B站 / 优酷 键盘选片：遥控操作说明",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

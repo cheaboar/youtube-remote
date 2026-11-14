@@ -396,7 +396,17 @@ async function handleInput(message, sender) {
     } else if (input === "closeTab") {
       error = { code: "CONFIRM_REQUIRED", message: "请在页面菜单中确认关闭" };
     } else if (input === "openTitles") {
-      mode.phase = "titles"; mode.menuGroup = "common"; mode.selectedItemId = "previousRecent";
+      // The panel opens on the tab wheel with the current page already centered; windows without a
+      // controllable tab still get the common group so entry is never a dead end.
+      const items = await menuItems({ ...mode, menuGroup: "tabs" }, tabs);
+      const tabItems = items.filter(item => item.id.startsWith("tab:"));
+      mode.phase = "titles";
+      if (tabItems.length) {
+        mode.menuGroup = "tabs";
+        mode.selectedItemId = tabItems.find(item => item.id === `tab:${activeTab.id}`)?.id || tabItems[0].id;
+      } else {
+        mode.menuGroup = "common"; mode.selectedItemId = "previousRecent";
+      }
     } else if (input === "groupNext" || input === "groupPrevious") {
       if (mode.phase === "titles") {
         const groups = R.BROWSER_GROUPS;
@@ -529,16 +539,52 @@ async function syncBrowserScripts({ inject = false } = {}) {
   if (granted && inject) await injectOpenTabs();
   return granted;
 }
+// A tab can be older than the extension: it may have loaded before the install or the optional
+// grant, or still run an instance whose extension context an update invalidated. Pinging costs one
+// message, and the answer proves a controller is alive and already has everything it needs.
+async function tabControllerAlive(tabId) {
+  try {
+    const reply = await chrome.tabs.sendMessage(tabId, { type: "remote:browser-ping" }, { frameId: 0 });
+    return reply?.ok === true;
+  } catch (_) { return false; }
+}
+async function injectController(tabId) {
+  try {
+    // The flag tells the bootstrap to replace a controller left behind by an older context
+    // instead of reconnecting to a runtime that no longer exists.
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+      func: () => { globalThis.__youtubeRemoteForceInit = true; } });
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["remote.js", "browser.js"] });
+    return true;
+  } catch (_) { /* Restricted, discarded or closing tabs are expected to fail. */ return false; }
+}
+// Make a tab answer remote keys without asking the user to refresh it. Registering a content
+// script never touches documents that are already open, so this is the only repair path.
+async function ensureTabController(tabId) {
+  if (typeof tabId !== "number") return false;
+  let tab;
+  try { tab = await chrome.tabs.get(tabId); } catch (_) { return false; }
+  if (!tab?.url || !controllableUrl(tab.url, await siteGranted())) return false;
+  if (await tabControllerAlive(tabId)) return true;
+  return injectController(tabId);
+}
 async function injectOpenTabs() {
   let tabs = [];
   try { tabs = await chrome.tabs.query({}); }
   catch (_) { return; }
+  const granted = await siteGranted();
   for (const tab of tabs) {
-    if (typeof tab.id !== "number" || !/^https?:/i.test(tab.url || "") || YOUTUBE.test(tab.url)) continue;
-    // Registering a script never injects into documents that are already open.
-    try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ["remote.js", "browser.js"] }); }
-    catch (_) { /* Restricted, discarded or closing tabs are expected to fail. */ }
+    if (typeof tab.id !== "number" || !controllableUrl(tab.url, granted)) continue;
+    if (await tabControllerAlive(tab.id)) continue;
+    await injectController(tab.id);
   }
+}
+// The active tab is where the user will press the entry keys, and after a worker restart no tab
+// event fires. Repair it as soon as the worker starts.
+async function ensureActiveTab() {
+  try {
+    for (const tab of await chrome.tabs.query({ active: true, lastFocusedWindow: true })) await ensureTabController(tab.id);
+  } catch (_) { /* No focused window. */ }
 }
 
 async function browserMessage(message, sender) {
@@ -630,6 +676,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   void serialized(async () => {
     await rememberActive(windowId, tabId);
+    // A tab may predate the extension or still run a controller from an invalidated context.
+    // Repair it before the state push below so the user does not have to refresh the page.
+    await ensureTabController(tabId);
     const mode = await readMode();
     // A recovery page from an earlier session is inert: its controller is bound to a token that
     // no longer exists. Close it once the user moves to another tab so it cannot trap the remote.
@@ -730,6 +779,9 @@ chrome.permissions.onRemoved.addListener(() => {
 chrome.runtime.onInstalled.addListener(() => { void syncBrowserScripts(); });
 chrome.runtime.onStartup.addListener(() => { void syncBrowserScripts(); });
 void syncBrowserScripts();
+// A worker wake-up emits no activation event, so the tab the user is looking at is repaired
+// explicitly. Every other tab is repaired when the user switches to it.
+void ensureActiveTab();
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   queue = queue.catch(() => {}).then(() => chrome.storage.session.remove(`remote:tab:${tabId}`));

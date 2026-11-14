@@ -13,7 +13,16 @@
     /^https:\/\/www\.youku\.com\/v_show\//.test(location.href);
   const onPlaybackPage = () => onDouyinPlayer() || onBilibiliPlayer() || onYoukuPlayer();
   const entryTaps = () => onYouTube || onPlaybackPage() ? 3 : 2;
-  if (globalThis.__remoteBrowserController) { globalThis.__remoteBrowserController.reconnect(); return; }
+  // The background reinjects these files into tabs that were open before the extension was
+  // installed, updated or reloaded. A live controller simply reconnects; a stale one (its runtime
+  // is gone but its page listeners still run) is disposed so it stops swallowing remote keys.
+  const previous = globalThis.__remoteBrowserController;
+  if (previous && globalThis.__youtubeRemoteForceInit !== true) { previous.reconnect(); return; }
+  delete globalThis.__youtubeRemoteForceInit;
+  try { previous?.dispose?.(); } catch (_) { /* Older controllers have no disposal. */ }
+  // An invalidated controller cannot clean up after itself, but its panel lives in the page DOM
+  // that this fresh context shares, so it is removed here before a new one is drawn.
+  if (top) { try { document.getElementById("youtube-remote-browser")?.remove(); } catch (_) { /* Detached document. */ } }
 
   const settingsChanged = () => void chrome.storage.local.get("remoteSettings").then((stored) => {
     settings = R.normalize(stored.remoteSettings);
@@ -23,6 +32,7 @@
 
   let settings = R.cloneDefaults();
   let loaded = false;
+  let disposed = false;
   let hostActive = false;
   let requestSeq = 0;
   const entry = R.createTapCounter();
@@ -57,6 +67,12 @@
     "date", "datetime-local", "month", "week", "time"]);
 
   const host = () => globalThis.__youtubeRemoteHost;
+  // After an extension update or reload the old content script keeps its page listeners but loses
+  // its runtime. Such a listener must not consume keys, or it would starve the controller that
+  // replaced it. A live context always has an extension id.
+  function runtimeAlive() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (_) { return false; }
+  }
   function send(message) {
     try { return chrome.runtime.sendMessage(message).catch(() => null); }
     catch (_) { return Promise.resolve(null); }
@@ -316,7 +332,7 @@
   }
 
   function applyState(state) {
-    if (!state || typeof state !== "object") return;
+    if (disposed || !state || typeof state !== "object") return;
     // An idle controller accepts a freshly started session even if the worker's revision counter
     // restarted; an active one still rejects anything older than what it already applied.
     const newSession = state.active === true && !!state.sessionId && state.sessionId !== states.sessionId && !states.active;
@@ -392,6 +408,7 @@
     return null;
   }
   function onKeyDown(event) {
+    if (disposed || !runtimeAlive()) return;
     if (event.isComposing || event.keyCode === 229 || event.key === "Process") { entry.reset(); return; }
     const chord = R.chord(event);
     if (states.active) { modeKey(event, chord); return; }
@@ -599,17 +616,18 @@
     else sendInput(input);
   }
   function onKeyUp(event) {
-    if (!consumed.delete(event.code || event.key)) return;
+    if (disposed || !runtimeAlive() || !consumed.delete(event.code || event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }
   function onKeyPress(event) {
-    if (!consumed.has(event.code || event.key)) return;
+    if (disposed || !runtimeAlive() || !consumed.has(event.code || event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }
 
   function refresh() {
+    if (disposed) return;
     send({ type: "remote:browser-state" }).then((result) => { if (result?.state) applyState(result.state); });
   }
 
@@ -635,6 +653,12 @@
     .search input:focus{border-color:#0059bd;box-shadow:0 0 0 3px rgba(0,89,189,.16)}
     .rows{position:relative;min-height:0;overflow:auto;overscroll-behavior:contain;padding:6px 10px 0;margin:12px -10px 0;isolation:isolate;
       scrollbar-width:thin;scrollbar-color:rgba(88,101,120,.23) transparent}
+    /* The tabs group is a wheel: three rows stay readable and the neighbours peek in half. */
+    .rows.tabs{overflow:hidden;scrollbar-width:none}
+    .rows.tabs::-webkit-scrollbar{display:none}
+    .rows.tabs.overflowing{-webkit-mask-image:linear-gradient(to bottom,transparent,#000 14px,#000 calc(100% - 14px),transparent);
+      mask-image:linear-gradient(to bottom,transparent,#000 14px,#000 calc(100% - 14px),transparent)}
+    .rows.tabs .row{transition:filter .16s ease}
     .row{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:38px;padding:4px 0;
       border-bottom:1px solid rgba(55,59,66,.075);font-size:14px;transition:color .18s ease}
     .row:last-child{border:0}
@@ -644,6 +668,7 @@
     .row.selected .ordinal{color:#0059bd}
     .footer{margin-top:14px;font-size:12px;line-height:1.7;color:#575b63}
     .error{color:#92554d}
+    @media(prefers-reduced-motion:reduce){.rows.tabs .row{transition:none}}
     @supports not (backdrop-filter:blur(1px)){.panel{background:rgba(247,248,250,.97)}}
     @media(prefers-reduced-transparency:reduce){.panel{background:#f6f7f9}.panel{-webkit-backdrop-filter:none;backdrop-filter:none}}
     @media(prefers-contrast:more){.panel{background:#f6f7f9;border-color:#858991}.row{border-color:#b6b9c0}.meta,.footer,.row .ordinal{color:#42464d}}
@@ -701,7 +726,7 @@
     return hud;
   }
   function render() {
-    if (!top) return;
+    if (disposed || !top) return;
     if (!states.active) {
       if (hud) { hud.hidden = true; hud.dataset.active = "false"; }
       return;
@@ -769,6 +794,13 @@
     }
     hudParts.rows.hidden = false;
     hudParts.rows.replaceChildren();
+    // Only the tabs group is a wheel; the other groups keep their natural list height.
+    const tabsGroup = states.menuGroup === "tabs";
+    hudParts.rows.classList.toggle("tabs", tabsGroup);
+    if (!tabsGroup) {
+      hudParts.rows.classList.remove("overflowing");
+      hudParts.rows.style.height = "";
+    }
     let selectedRow = null;
     const rowFor = (selected, labelText, hint, data, icon, optional = false) => {
       const row = document.createElement("div");
@@ -804,11 +836,32 @@
       : "←→ 切换分组 · ↑↓ 选择 · Enter 执行 · Esc 返回直控";
     if (pageNotice) hudParts.footer.textContent = pageNotice;
     hudParts.footer.className = "footer";
-    if (selectedRow) {
+    if (tabsGroup) paintTabsWindow(selectedRow);
+    else if (selectedRow) {
       const rowBox = selectedRow.getBoundingClientRect();
       const listBox = hudParts.rows.getBoundingClientRect();
       if (rowBox.bottom > listBox.bottom - 4) hudParts.rows.scrollTop += rowBox.bottom - listBox.bottom + 4;
       else if (rowBox.top < listBox.top + 4) hudParts.rows.scrollTop -= listBox.top + 4 - rowBox.top;
+    }
+  }
+  // Three tabs stay fully readable, the next ones peek in half and blur out towards the edges, and
+  // the selected tab is scrolled to the middle so ↑↓ always keeps its position on screen.
+  function paintTabsWindow(selectedRow) {
+    const list = hudParts.rows;
+    const rows = [...list.children];
+    list.classList.toggle("overflowing", rows.length > 3);
+    if (!rows.length) { list.style.height = ""; return; }
+    const rowHeight = rows[0].offsetHeight || 38;
+    const full = Math.min(3, rows.length);
+    // Two half rows of context make it obvious that the list continues in either direction.
+    const peek = rows.length > 3 ? Math.round(rowHeight * 0.64) : 0;
+    list.style.height = `${full * rowHeight + peek + 6}px`;
+    if (selectedRow) list.scrollTop = selectedRow.offsetTop - (list.clientHeight - selectedRow.offsetHeight) / 2;
+    const center = list.clientHeight / 2;
+    for (const row of rows) {
+      const distance = Math.abs(row.offsetTop + row.offsetHeight / 2 - list.scrollTop - center);
+      const blur = Math.min(1.2, Math.max(0, (distance - rowHeight) / rowHeight) * 1.2);
+      row.style.filter = blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : "";
     }
   }
 
@@ -824,12 +877,14 @@
     else resetPageState();
   });
   document.addEventListener("fullscreenchange", () => { if (states.active) render(); });
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (!message) return;
+    // The background pings a tab before reinjecting: an answer proves this controller is live.
+    if (message.type === "remote:browser-ping") { if (!disposed) respond({ ok: true }); return; }
     if (message.type === "remote:browser-state-changed") applyState(message.state);
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes.remoteSettings) return;
+    if (disposed || area !== "local" || !changes.remoteSettings) return;
     settings = R.normalize(changes.remoteSettings.newValue);
     loaded = true;
     entry.reset();
@@ -837,8 +892,24 @@
     // Disabling the takeover or removing the binding ends the global mode everywhere.
     if (states.active && (!settings.enabled || !settings.bindings.browser)) send({ type: "remote:browser-exit" });
   });
+  // A reinjection replaces a controller whose extension context is gone. Its page listeners stay
+  // attached for the lifetime of the document, so it has to go inert instead of being removed.
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    entry.reset();
+    entryPanelUntil = 0;
+    consumed.clear();
+    clearTimeout(noticeTimer);
+    clearPendingDirect();
+    resetPageState(false);
+    if (hostActive) { hostActive = false; host()?.deactivate?.(); }
+    hud?.remove();
+    hud = null;
+    hudParts = null;
+  }
   // A late injection after the permission grant may find the controller already active.
-  globalThis.__remoteBrowserController = { reconnect() { refresh(); render(); } };
+  globalThis.__remoteBrowserController = { reconnect() { refresh(); render(); }, dispose };
 
   settingsChanged();
   if (top) refresh();

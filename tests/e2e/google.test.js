@@ -130,6 +130,11 @@ async function openSearchBox(page) {
   await page.waitForFunction(() => document.querySelector("#youtube-remote-browser")?.dataset.active === "true");
   await press(page, "Enter");
   await page.waitForFunction(() => document.querySelector("#youtube-remote-browser")?.dataset.phase === "titles");
+  // The panel opens on the tabs group; two steps right reach the common group.
+  for (const group of ["page", "common"]) {
+    await press(page, "ArrowRight");
+    await page.waitForFunction(value => document.querySelector("#youtube-remote-browser")?.dataset.group === value, group);
+  }
   for (let i = 0; i < 20 && (await browserHud(page)).item !== "googleSearch"; i++) {
     const before = (await browserHud(page)).item;
     await press(page, "ArrowDown");
